@@ -11,6 +11,7 @@
 
 static constexpr auto WIDTH = 800;
 static constexpr auto HEIGHT = 600;
+static constexpr auto VALIDATION_LAYER = "VK_LAYER_KHRONOS_validation";
 
 namespace VkDraw {
 	static SDL_Window* _window;
@@ -20,10 +21,17 @@ namespace VkDraw {
 	static VkInstance _instance{};
 	static std::vector<VkExtensionProperties> _extensions;
 
+#ifdef NDEBUG
+	static bool _use_validation = false;
+#else
+	static bool _use_validation = true;
+#endif
+
 	Result run(std::span<std::string_view> args) {
 		// print all arguements
 		for (auto [idx, arg] : std::views::enumerate(args)) {
 			std::printf("arg[%zu] = %s\n", idx, arg.data());
+			// TODO: parse arguements
 		}
 
 		if (_window = SDL_CreateWindow("VkDraw", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT,
@@ -47,16 +55,39 @@ namespace VkDraw {
 
 		// check Vulkan extension support
 		{
-			uint32_t count = 0;
+			uint32_t count;
 			vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
 			_extensions.resize(count);
 			vkEnumerateInstanceExtensionProperties(nullptr, &count, _extensions.data());
 
-			std::printf("Vulkan: %u extensions supported {\n", count);
+			std::printf("Vulkan: %u extension/s supported {\n", count);
 			for (auto ext : _extensions) {
 				std::printf("\t%s\n", ext.extensionName);
 			}
 			std::printf("}\n");
+		}
+
+		// check Vulkan validation layer support
+		if (_use_validation) {
+			uint32_t count;
+			vkEnumerateInstanceLayerProperties(&count, nullptr);
+			std::vector<VkLayerProperties> layers(count);
+			vkEnumerateInstanceLayerProperties(&count, layers.data());
+
+			bool found = false;
+			std::printf("Vulkan: %u layers/s supported {\n", count);
+			for (auto layer : layers) {
+				std::printf("\t%s\n", layer.layerName);
+				if (strcmp(layer.layerName, VALIDATION_LAYER) == 0) {
+					found = true;
+				}
+			}
+			std::printf("}\n");
+
+			if (!found) {
+				std::fprintf(stderr, "Vulkan: Validation layers requested but not supported!");
+				return Result::FAILURE;
+			}
 		}
 
 		// create Vulkan instance
@@ -77,8 +108,14 @@ namespace VkDraw {
 			info.pApplicationInfo = &_app_info;
 			info.enabledExtensionCount = count;
 			info.ppEnabledExtensionNames = names.data();
-			info.enabledLayerCount = 0;
-			info.ppEnabledLayerNames = nullptr;
+
+			if (_use_validation) {
+				info.enabledLayerCount = 1;
+				info.ppEnabledLayerNames = &VALIDATION_LAYER;
+			} else {
+				info.enabledLayerCount = 0;
+				info.ppEnabledLayerNames = nullptr;
+			}
 
 			if (vkCreateInstance(&info, nullptr, &_instance) != VK_SUCCESS) {
 				std::fprintf(stderr, "Vulkan: Failed to create instance!");
