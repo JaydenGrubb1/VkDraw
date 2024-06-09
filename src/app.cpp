@@ -21,6 +21,7 @@ namespace VkDraw {
 	static VkInstance _instance{};
 	static std::vector<VkExtensionProperties> _supported_extensions;
 	static std::vector<const char*> _required_extensions;
+	static VkPhysicalDevice _physical_device = nullptr;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -125,6 +126,36 @@ namespace VkDraw {
 
 			if (vkCreateInstance(&info, nullptr, &_instance) != VK_SUCCESS) {
 				std::fprintf(stderr, "Vulkan: Failed to create instance!");
+				return EXIT_FAILURE;
+			}
+		}
+
+		// select appropriate GPU
+		{
+			uint32_t count;
+			vkEnumeratePhysicalDevices(_instance, &count, nullptr);
+			std::vector<VkPhysicalDevice> devices(count);
+			vkEnumeratePhysicalDevices(_instance, &count, devices.data());
+
+			std::printf("Vulkan: %u device/s found {\n", count);
+			for (const auto& device : devices) {
+				VkPhysicalDeviceProperties properties;
+				vkGetPhysicalDeviceProperties(device, &properties);
+
+				std::printf("\t%s\n", properties.deviceName);
+
+				if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+					_physical_device = device;
+					// TODO: better selection criteria ???
+				}
+
+				// VkPhysicalDeviceFeatures features;
+				// vkGetPhysicalDeviceFeatures(device, &features);
+			}
+			std::printf("}\n");
+
+			if (_physical_device == nullptr) {
+				std::fprintf(stderr, "Vulkan: No suitable graphics device was found!");
 				return EXIT_FAILURE;
 			}
 		}
