@@ -3,6 +3,7 @@
 #include <vector>
 #include <cstdint>
 #include <optional>
+#include <set>
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
@@ -17,6 +18,7 @@ static constexpr auto VALIDATION_LAYER = "VK_LAYER_KHRONOS_validation";
 namespace VkDraw {
 	struct QueueFamilyIndex {
 		std::optional<uint32_t> gfx_family;
+		std::optional<uint32_t> present_family;
 	};
 
 	static SDL_Window* _window;
@@ -24,12 +26,14 @@ namespace VkDraw {
 
 	static VkApplicationInfo _app_info{};
 	static VkInstance _instance{};
+	static VkSurfaceKHR _surface{};
 	static std::vector<VkExtensionProperties> _supported_extensions;
 	static std::vector<const char*> _required_extensions;
 	static VkPhysicalDevice _physical_device = nullptr;
 	static VkDevice _logical_device = nullptr;
 	static QueueFamilyIndex _queue_family;
 	static VkQueue _gfx_queue;
+	static VkQueue _present_queue;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -138,6 +142,14 @@ namespace VkDraw {
 			}
 		}
 
+		// create window surface
+		{
+			if (SDL_Vulkan_CreateSurface(_window, _instance, &_surface) != SDL_TRUE) {
+				std::fprintf(stderr, "Vulkan: Failed to create window surface!");
+				return EXIT_FAILURE;
+			}
+		}
+
 		// select appropriate GPU
 		{
 			uint32_t count;
@@ -177,8 +189,19 @@ namespace VkDraw {
 			vkGetPhysicalDeviceQueueFamilyProperties(_physical_device, &count, families.data());
 
 			for (auto [idx, family] : std::views::enumerate(families)) {
-				if (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+				bool support_gfx = family.queueFlags & VK_QUEUE_GRAPHICS_BIT;
+				if (support_gfx) {
 					_queue_family.gfx_family = idx;
+				}
+
+				VkBool32 support_presentation = false;
+				vkGetPhysicalDeviceSurfaceSupportKHR(_physical_device, idx, _surface, &support_presentation);
+				if (support_presentation) {
+					_queue_family.present_family = idx;
+				}
+
+				if (support_gfx && support_presentation) {
+					break;
 				}
 			}
 
@@ -186,24 +209,36 @@ namespace VkDraw {
 				std::fprintf(stderr, "Vulkan: No suitable graphics queue family available!");
 				return EXIT_FAILURE;
 			}
+			if (!_queue_family.present_family.has_value()) {
+				std::fprintf(stderr, "Vulkan: No sutiable presentation queue family available!");
+				return EXIT_FAILURE;
+			}
 		}
 
 		// create logical device
 		{
-			VkDeviceQueueCreateInfo info{};
-			info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-			info.queueFamilyIndex = _queue_family.gfx_family.value();
-			info.queueCount = 1;
+			std::vector<VkDeviceQueueCreateInfo> families;
+			std::set<uint32_t> unique_familes = {
+				_queue_family.gfx_family.value(), _queue_family.present_family.value()
+			};
 			float priority = 1.0f;
-			info.pQueuePriorities = &priority;
+
+			for (auto family : unique_familes) {
+				VkDeviceQueueCreateInfo info{};
+				info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+				info.queueFamilyIndex = family;
+				info.queueCount = 1;
+				info.pQueuePriorities = &priority;
+				families.push_back(info);
+			}
 
 			VkPhysicalDeviceFeatures features{};
 			// TODO: add features
 
 			VkDeviceCreateInfo dinfo{};
 			dinfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-			dinfo.pQueueCreateInfos = &info;
-			dinfo.queueCreateInfoCount = 1;
+			dinfo.pQueueCreateInfos = families.data();
+			dinfo.queueCreateInfoCount = families.size();
 			dinfo.pEnabledFeatures = &features;
 
 			if (_use_validation) {
@@ -223,6 +258,7 @@ namespace VkDraw {
 		// get device queues
 		{
 			vkGetDeviceQueue(_logical_device, _queue_family.gfx_family.value(), 0, &_gfx_queue);
+			vkGetDeviceQueue(_logical_device, _queue_family.present_family.value(), 0, &_present_queue);
 		}
 
 		SDL_Event event;
@@ -239,12 +275,13 @@ namespace VkDraw {
 			SDL_SetRenderDrawColor(_renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
 			SDL_RenderClear(_renderer);
 
-			// TODO: draw fram here...
+			// TODO: draw frame here...
 
 			SDL_RenderPresent(_renderer);
 		}
 
 		vkDestroyDevice(_logical_device, nullptr);
+		vkDestroySurfaceKHR(_instance, _surface, nullptr);
 		vkDestroyInstance(_instance, nullptr);
 
 		SDL_DestroyRenderer(_renderer);
