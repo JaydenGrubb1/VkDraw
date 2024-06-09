@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <vector>
 #include <cstdint>
+#include <optional>
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
@@ -14,6 +15,10 @@ static constexpr auto HEIGHT = 600;
 static constexpr auto VALIDATION_LAYER = "VK_LAYER_KHRONOS_validation";
 
 namespace VkDraw {
+	struct QueueFamilyIndex {
+		std::optional<uint32_t> gfx_family;
+	};
+
 	static SDL_Window* _window;
 	static SDL_Renderer* _renderer;
 
@@ -22,6 +27,9 @@ namespace VkDraw {
 	static std::vector<VkExtensionProperties> _supported_extensions;
 	static std::vector<const char*> _required_extensions;
 	static VkPhysicalDevice _physical_device = nullptr;
+	static VkDevice _logical_device = nullptr;
+	static QueueFamilyIndex _queue_family;
+	static VkQueue _gfx_queue;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -147,6 +155,7 @@ namespace VkDraw {
 				if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
 					_physical_device = device;
 					// TODO: better selection criteria ???
+					// TODO: check queue families here ???
 				}
 
 				// VkPhysicalDeviceFeatures features;
@@ -158,6 +167,62 @@ namespace VkDraw {
 				std::fprintf(stderr, "Vulkan: No suitable graphics device was found!");
 				return EXIT_FAILURE;
 			}
+		}
+
+		// find queue families
+		{
+			uint32_t count;
+			vkGetPhysicalDeviceQueueFamilyProperties(_physical_device, &count, nullptr);
+			std::vector<VkQueueFamilyProperties> families(count);
+			vkGetPhysicalDeviceQueueFamilyProperties(_physical_device, &count, families.data());
+
+			for (auto [idx, family] : std::views::enumerate(families)) {
+				if (family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+					_queue_family.gfx_family = idx;
+				}
+			}
+
+			if (!_queue_family.gfx_family.has_value()) {
+				std::fprintf(stderr, "Vulkan: No suitable graphics queue family available!");
+				return EXIT_FAILURE;
+			}
+		}
+
+		// create logical device
+		{
+			VkDeviceQueueCreateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+			info.queueFamilyIndex = _queue_family.gfx_family.value();
+			info.queueCount = 1;
+			float priority = 1.0f;
+			info.pQueuePriorities = &priority;
+
+			VkPhysicalDeviceFeatures features{};
+			// TODO: add features
+
+			VkDeviceCreateInfo dinfo{};
+			dinfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+			dinfo.pQueueCreateInfos = &info;
+			dinfo.queueCreateInfoCount = 1;
+			dinfo.pEnabledFeatures = &features;
+
+			if (_use_validation) {
+				dinfo.enabledLayerCount = 1;
+				dinfo.ppEnabledLayerNames = &VALIDATION_LAYER;
+			} else {
+				dinfo.enabledLayerCount = 0;
+				dinfo.ppEnabledLayerNames = nullptr;
+			}
+
+			if (vkCreateDevice(_physical_device, &dinfo, nullptr, &_logical_device) != VK_SUCCESS) {
+				std::fprintf(stderr, "Vulkan: Failed to create logical device!");
+				return EXIT_FAILURE;
+			}
+		}
+
+		// get device queues
+		{
+			vkGetDeviceQueue(_logical_device, _queue_family.gfx_family.value(), 0, &_gfx_queue);
 		}
 
 		SDL_Event event;
@@ -179,6 +244,7 @@ namespace VkDraw {
 			SDL_RenderPresent(_renderer);
 		}
 
+		vkDestroyDevice(_logical_device, nullptr);
 		vkDestroyInstance(_instance, nullptr);
 
 		SDL_DestroyRenderer(_renderer);
