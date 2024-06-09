@@ -14,6 +14,9 @@
 static constexpr auto WIDTH = 800;
 static constexpr auto HEIGHT = 600;
 static constexpr auto VALIDATION_LAYER = "VK_LAYER_KHRONOS_validation";
+static const std::vector<const char*> DEVICE_EXTENSIONS = {
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME
+};
 
 namespace VkDraw {
 	struct QueueFamilyIndex {
@@ -164,14 +167,36 @@ namespace VkDraw {
 
 				std::printf("\t%s\n", properties.deviceName);
 
-				if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-					_physical_device = device;
-					// TODO: better selection criteria ???
-					// TODO: check queue families here ???
+				bool dedicated = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+				bool supports_extensions = true;
+
+				// check if device supports required extensions
+				{
+					uint32_t ext_count;
+					vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count, nullptr);
+					std::vector<VkExtensionProperties> ext_properties(ext_count);
+					vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count, ext_properties.data());
+
+					for (const auto& required : DEVICE_EXTENSIONS) {
+						bool found = false;
+						for (const auto& ext : ext_properties) {
+							if (strcmp(ext.extensionName, required) == 0) {
+								found = true;
+								break;
+							}
+						}
+						if (!found) {
+							supports_extensions = false;
+							break;
+						}
+					}
 				}
 
-				// VkPhysicalDeviceFeatures features;
-				// vkGetPhysicalDeviceFeatures(device, &features);
+				// TODO: also check queue family support
+				// TODO: "rank" devices by non-essential features
+				if (dedicated && supports_extensions) {
+					_physical_device = device;
+				}
 			}
 			std::printf("}\n");
 
@@ -235,21 +260,23 @@ namespace VkDraw {
 			VkPhysicalDeviceFeatures features{};
 			// TODO: add features
 
-			VkDeviceCreateInfo dinfo{};
-			dinfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-			dinfo.pQueueCreateInfos = families.data();
-			dinfo.queueCreateInfoCount = families.size();
-			dinfo.pEnabledFeatures = &features;
+			VkDeviceCreateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+			info.pQueueCreateInfos = families.data();
+			info.queueCreateInfoCount = families.size();
+			info.pEnabledFeatures = &features;
+			info.ppEnabledExtensionNames = DEVICE_EXTENSIONS.data();
+			info.enabledExtensionCount = DEVICE_EXTENSIONS.size();
 
 			if (_use_validation) {
-				dinfo.enabledLayerCount = 1;
-				dinfo.ppEnabledLayerNames = &VALIDATION_LAYER;
+				info.enabledLayerCount = 1;
+				info.ppEnabledLayerNames = &VALIDATION_LAYER;
 			} else {
-				dinfo.enabledLayerCount = 0;
-				dinfo.ppEnabledLayerNames = nullptr;
+				info.enabledLayerCount = 0;
+				info.ppEnabledLayerNames = nullptr;
 			}
 
-			if (vkCreateDevice(_physical_device, &dinfo, nullptr, &_logical_device) != VK_SUCCESS) {
+			if (vkCreateDevice(_physical_device, &info, nullptr, &_logical_device) != VK_SUCCESS) {
 				std::fprintf(stderr, "Vulkan: Failed to create logical device!");
 				return EXIT_FAILURE;
 			}
