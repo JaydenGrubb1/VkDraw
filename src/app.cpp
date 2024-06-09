@@ -19,7 +19,8 @@ namespace VkDraw {
 
 	static VkApplicationInfo _app_info{};
 	static VkInstance _instance{};
-	static std::vector<VkExtensionProperties> _extensions;
+	static std::vector<VkExtensionProperties> _supported_extensions;
+	static std::vector<const char*> _required_extensions;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -53,21 +54,37 @@ namespace VkDraw {
 		_app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
 		_app_info.apiVersion = VK_API_VERSION_1_0;
 
-		// check Vulkan extension support
+		// check supported Vulkan extension
 		{
 			uint32_t count;
 			vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
-			_extensions.resize(count);
-			vkEnumerateInstanceExtensionProperties(nullptr, &count, _extensions.data());
+			_supported_extensions.resize(count);
+			vkEnumerateInstanceExtensionProperties(nullptr, &count, _supported_extensions.data());
 
 			std::printf("Vulkan: %u extension/s supported {\n", count);
-			for (auto ext : _extensions) {
+			for (const auto& ext : _supported_extensions) {
 				std::printf("\t%s\n", ext.extensionName);
 			}
 			std::printf("}\n");
 		}
 
-		// check Vulkan validation layer support
+		// check required Vulkan extensions
+		{
+			uint32_t count;
+			SDL_Vulkan_GetInstanceExtensions(_window, &count, nullptr);
+			_required_extensions.resize(count);
+			SDL_Vulkan_GetInstanceExtensions(_window, &count, _required_extensions.data());
+
+			// TODO: push additional required extensions
+
+			std::printf("Vulkan: %u extension/s required {\n", count);
+			for (const auto ext : _required_extensions) {
+				std::printf("\t%s\n", ext);
+			}
+			std::printf("}\n");
+		}
+
+		// check supported Vulkan layers
 		if (_use_validation) {
 			uint32_t count;
 			vkEnumerateInstanceLayerProperties(&count, nullptr);
@@ -92,22 +109,11 @@ namespace VkDraw {
 
 		// create Vulkan instance
 		{
-			uint32_t count;
-			SDL_Vulkan_GetInstanceExtensions(_window, &count, nullptr);
-			std::vector<const char*> names(count);
-			SDL_Vulkan_GetInstanceExtensions(_window, &count, names.data());
-
-			std::printf("Vulkan: SDL requires %u extension/s {\n", count);
-			for (const auto name : names) {
-				std::printf("\t%s\n", name);
-			}
-			std::printf("}\n");
-
 			VkInstanceCreateInfo info{};
 			info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 			info.pApplicationInfo = &_app_info;
-			info.enabledExtensionCount = count;
-			info.ppEnabledExtensionNames = names.data();
+			info.enabledExtensionCount = _required_extensions.size();
+			info.ppEnabledExtensionNames = _required_extensions.data();
 
 			if (_use_validation) {
 				info.enabledLayerCount = 1;
