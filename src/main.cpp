@@ -1,6 +1,6 @@
-#include <vector>
 #include <cstdio>
 #include <stdexcept>
+#include <vector>
 
 #include "app.h"
 
