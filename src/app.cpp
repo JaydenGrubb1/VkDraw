@@ -7,6 +7,7 @@
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
+
 #include <vulkan/vulkan.h>
 
 #include "app.h"
@@ -49,6 +50,11 @@ namespace VkDraw {
 		for (auto [idx, arg] : std::views::enumerate(args)) {
 			std::printf("arg[%zu] = %s\n", idx, arg.data());
 			// TODO: parse arguements
+		}
+
+		if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+			std::fprintf(stderr, "SDL: Failed to initialize!\n");
+			return EXIT_FAILURE;
 		}
 
 		if (_window = SDL_CreateWindow("VkDraw", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT,
@@ -313,6 +319,7 @@ namespace VkDraw {
 
 		SDL_DestroyRenderer(_renderer);
 		SDL_DestroyWindow(_window);
+		SDL_Quit();
 
 		return EXIT_SUCCESS;
 	}

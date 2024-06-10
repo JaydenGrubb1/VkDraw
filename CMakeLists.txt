@@ -10,7 +10,7 @@ add_compile_options(
 	-Wall
 	-Wextra
 	-Wpedantic
-#	-Wold-style-cast
+	#	-Wold-style-cast
 )
 
 add_executable(
