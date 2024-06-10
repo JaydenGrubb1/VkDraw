@@ -52,6 +52,7 @@ namespace VkDraw {
 	static VkExtent2D _swapchain_extent;
 	static VkSwapchainKHR _swapchain;
 	static std::vector<VkImage> _swapchain_images;
+	static std::vector<VkImageView> _swapchain_image_views;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -414,12 +415,35 @@ namespace VkDraw {
 			}
 		}
 
-		// get swapchain images
+		// get swapchain images and image views
 		{
 			uint32_t count;
 			vkGetSwapchainImagesKHR(_logical_device, _swapchain, &count, nullptr);
 			_swapchain_images.resize(count);
 			vkGetSwapchainImagesKHR(_logical_device, _swapchain, &count, _swapchain_images.data());
+
+			_swapchain_image_views.resize(count);
+			for (uint32_t i = 0; i < count; i++) {
+				VkImageViewCreateInfo info;
+				info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+				info.image = _swapchain_images[i];
+				info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+				info.format = _swapchain_format.format;
+				info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+				info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+				info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+				info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+				info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				info.subresourceRange.baseMipLevel = 0;
+				info.subresourceRange.levelCount = 1;
+				info.subresourceRange.baseArrayLayer = 0;
+				info.subresourceRange.layerCount = 1;
+
+				if (vkCreateImageView(_logical_device, &info, nullptr, &_swapchain_image_views[i]) != VK_SUCCESS) {
+					std::fprintf(stderr, "Vulkan: Failed to create image view");
+					return EXIT_FAILURE;
+				}
+			}
 		}
 
 		SDL_Event event;
@@ -439,6 +463,10 @@ namespace VkDraw {
 			// TODO: draw frame here...
 
 			SDL_RenderPresent(_renderer);
+		}
+
+		for (auto view : _swapchain_image_views) {
+			vkDestroyImageView(_logical_device, view, nullptr);
 		}
 
 		vkDestroySwapchainKHR(_logical_device, _swapchain, nullptr);
