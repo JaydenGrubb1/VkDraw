@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <optional>
 #include <set>
+#include <limits>
+#include <algorithm>
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
@@ -25,6 +27,12 @@ namespace VkDraw {
 		std::optional<uint32_t> present_family;
 	};
 
+	struct SwapchainSupport {
+		VkSurfaceCapabilitiesKHR capabilities{};
+		std::vector<VkSurfaceFormatKHR> formats;
+		std::vector<VkPresentModeKHR> present_modes;
+	};
+
 	static SDL_Window* _window;
 	static SDL_Renderer* _renderer;
 
@@ -38,6 +46,12 @@ namespace VkDraw {
 	static QueueFamilyIndex _queue_family;
 	static VkQueue _gfx_queue;
 	static VkQueue _present_queue;
+	static SwapchainSupport _swapchain_support;
+	static VkSurfaceFormatKHR _swapchain_format;
+	static VkPresentModeKHR _swapchain_mode = VK_PRESENT_MODE_FIFO_KHR;
+	static VkExtent2D _swapchain_extent;
+	static VkSwapchainKHR _swapchain;
+	static std::vector<VkImage> _swapchain_images;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -199,6 +213,7 @@ namespace VkDraw {
 				}
 
 				// TODO: also check queue family support
+				// TODO: also check swapchain supprt
 				// TODO: "rank" devices by non-essential features
 				if (dedicated && supports_extensions) {
 					_physical_device = device;
@@ -294,6 +309,119 @@ namespace VkDraw {
 			vkGetDeviceQueue(_logical_device, _queue_family.present_family.value(), 0, &_present_queue);
 		}
 
+		// get swapchain support information
+		{
+			// get surface capabilities
+			vkGetPhysicalDeviceSurfaceCapabilitiesKHR(_physical_device, _surface, &_swapchain_support.capabilities);
+
+			// get surface formats
+			{
+				uint32_t count;
+				vkGetPhysicalDeviceSurfaceFormatsKHR(_physical_device, _surface, &count, nullptr);
+				_swapchain_support.formats.resize(count);
+				vkGetPhysicalDeviceSurfaceFormatsKHR(_physical_device, _surface, &count,
+				                                     _swapchain_support.formats.data());
+			}
+
+			// get surface presentation modes
+			{
+				uint32_t count;
+				vkGetPhysicalDeviceSurfacePresentModesKHR(_physical_device, _surface, &count, nullptr);
+				_swapchain_support.present_modes.resize(count);
+				vkGetPhysicalDeviceSurfacePresentModesKHR(_physical_device, _surface, &count,
+				                                          _swapchain_support.present_modes.data());
+			}
+
+			if (_swapchain_support.formats.empty() || _swapchain_support.present_modes.empty()) {
+				std::fprintf(stderr, "Vulkan: No sutiable swapchain available!");
+				return EXIT_FAILURE;
+			}
+		}
+
+		// select swapchain format
+		{
+			for (auto format : _swapchain_support.formats) {
+				if (format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace ==
+					VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+					_swapchain_format = format;
+					break;
+				}
+			}
+			// TODO: "rank" format preferences
+		}
+
+		// select swapchain presentation mode
+		{
+			for (auto mode : _swapchain_support.present_modes) {
+				if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
+					_swapchain_mode = mode;
+				}
+			}
+			// TODO: consider FIFO for low power device
+		}
+
+		// select swapchain extent
+		{
+			if (_swapchain_support.capabilities.currentExtent.width == std::numeric_limits<uint32_t>::max()) {
+				int width;
+				int height;
+				SDL_Vulkan_GetDrawableSize(_window, &width, &height);
+
+				_swapchain_extent.width = std::clamp(static_cast<uint32_t>(width),
+				                                     _swapchain_support.capabilities.minImageExtent.width,
+				                                     _swapchain_support.capabilities.maxImageExtent.width);
+				_swapchain_extent.height = std::clamp(static_cast<uint32_t>(height),
+				                                      _swapchain_support.capabilities.minImageExtent.height,
+				                                      _swapchain_support.capabilities.maxImageExtent.height);
+			} else {
+				_swapchain_extent = _swapchain_support.capabilities.currentExtent;
+			}
+		}
+
+		// create swapchain (probs needs to be function)
+		{
+			uint32_t image_count = std::min(_swapchain_support.capabilities.minImageCount + 1,
+			                                _swapchain_support.capabilities.maxImageCount);
+
+			VkSwapchainCreateInfoKHR info{};
+			info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+			info.surface = _surface;
+			info.minImageCount = image_count;
+			info.imageFormat = _swapchain_format.format;
+			info.imageColorSpace = _swapchain_format.colorSpace;
+			info.imageExtent = _swapchain_extent;
+			info.imageArrayLayers = 1; // unless using VR
+			info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // render direct to image for now
+			info.preTransform = _swapchain_support.capabilities.currentTransform;
+			info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+			info.presentMode = _swapchain_mode;
+			info.clipped = VK_TRUE;
+			info.oldSwapchain = nullptr;
+
+			uint32_t queue_indexs[] = {_queue_family.gfx_family.value(), _queue_family.present_family.value()};
+
+			if (_queue_family.gfx_family == _queue_family.present_family) {
+				info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			} else {
+				info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+				info.queueFamilyIndexCount = 2;
+				info.pQueueFamilyIndices = queue_indexs;
+			}
+
+			if (vkCreateSwapchainKHR(_logical_device, &info, nullptr, &_swapchain) != VK_SUCCESS) {
+				std::fprintf(stderr, "Vulkan: Failed to create swapchain!");
+				return EXIT_FAILURE;
+			}
+		}
+
+		// get swapchain images
+		{
+			uint32_t count;
+			vkGetSwapchainImagesKHR(_logical_device, _swapchain, &count, nullptr);
+			_swapchain_images.resize(count);
+			vkGetSwapchainImagesKHR(_logical_device, _swapchain, &count, _swapchain_images.data());
+		}
+
 		SDL_Event event;
 		bool running = true;
 
@@ -313,6 +441,7 @@ namespace VkDraw {
 			SDL_RenderPresent(_renderer);
 		}
 
+		vkDestroySwapchainKHR(_logical_device, _swapchain, nullptr);
 		vkDestroyDevice(_logical_device, nullptr);
 		vkDestroySurfaceKHR(_instance, _surface, nullptr);
 		vkDestroyInstance(_instance, nullptr);
