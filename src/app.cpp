@@ -802,7 +802,28 @@ namespace VkDraw {
 		SDL_Event event;
 		bool running = true;
 
+		auto last = static_cast<float>(SDL_GetTicks());
+		float accumulator = 0.0f;
+		float frame_count = 0.0f;
+
 		while (running) {
+			auto now = static_cast<float>(SDL_GetTicks());
+			float delta = now - last;
+			last = now;
+			accumulator += delta;
+			frame_count++;
+
+			if (accumulator >= 1000) {
+				char title[64];
+				float avg = accumulator / frame_count;
+				accumulator = 0.0f;
+				frame_count = 0.0f;
+
+				std::snprintf(title, sizeof(title), "VkDraw | FPS: %.0f (%.2fms)", 1000.0f / avg, avg);
+				SDL_SetWindowTitle(_window, title);
+			}
+
+
 			while (SDL_PollEvent(&event)) {
 				if (event.type == SDL_QUIT) {
 					running = false;
