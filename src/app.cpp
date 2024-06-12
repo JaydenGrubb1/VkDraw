@@ -63,6 +63,7 @@ namespace VkDraw {
 	static VkPipelineLayout _pipeline_layout;
 	static VkRenderPass _render_pass;
 	static VkPipeline _pipeline;
+	static std::vector<VkFramebuffer> _framebuffers;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -670,6 +671,31 @@ namespace VkDraw {
 			vkDestroyShaderModule(_logical_device, frag_shader, nullptr);
 		}
 
+		// create framebuffers
+		{
+			_framebuffers.resize(_swapchain_image_views.size());
+
+			for (size_t i = 0; i < _swapchain_image_views.size(); ++i) {
+				VkImageView attachment[] = {
+					_swapchain_image_views[i]
+				};
+
+				VkFramebufferCreateInfo info{};
+				info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+				info.renderPass = _render_pass;
+				info.attachmentCount = 1;
+				info.pAttachments = attachment;
+				info.width = _swapchain_extent.width;
+				info.height = _swapchain_extent.height;
+				info.layers = 1;
+
+				if (vkCreateFramebuffer(_logical_device, &info, nullptr, &_framebuffers[i]) != VK_SUCCESS) {
+					std::fprintf(stderr, "Vulkan: Failed to create framebuffer!");
+					return EXIT_FAILURE;
+				}
+			}
+		}
+
 		SDL_Event event;
 		bool running = true;
 
@@ -689,13 +715,18 @@ namespace VkDraw {
 			SDL_RenderPresent(_renderer);
 		}
 
-		for (auto view : _swapchain_image_views) {
-			vkDestroyImageView(_logical_device, view, nullptr);
+		for (auto framebuffer : _framebuffers) {
+			vkDestroyFramebuffer(_logical_device, framebuffer, nullptr);
 		}
 
 		vkDestroyPipeline(_logical_device, _pipeline, nullptr);
 		vkDestroyRenderPass(_logical_device, _render_pass, nullptr);
 		vkDestroyPipelineLayout(_logical_device, _pipeline_layout, nullptr);
+
+		for (auto view : _swapchain_image_views) {
+			vkDestroyImageView(_logical_device, view, nullptr);
+		}
+
 		vkDestroySwapchainKHR(_logical_device, _swapchain, nullptr);
 		vkDestroyDevice(_logical_device, nullptr);
 		vkDestroySurfaceKHR(_instance, _surface, nullptr);
