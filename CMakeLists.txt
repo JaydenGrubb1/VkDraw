@@ -10,13 +10,19 @@ add_compile_options(
 	-Wall
 	-Wextra
 	-Wpedantic
-	#	-Wold-style-cast
+#	-Wold-style-cast
 )
 
 add_executable(
 	${PROJECT_NAME}
 	src/main.cpp
 	src/app.cpp
+)
+
+set(
+	SHADER_SRC
+	shaders/shader.frag
+	shaders/shader.vert
 )
 
 find_package(SDL2 REQUIRED)
@@ -33,3 +39,18 @@ target_link_libraries(
 	${SDL2_LIBRARIES}
 	${Vulkan_LIBRARIES}
 )
+
+find_program(GLSLC glslc REQUIRED HINTS Vulkan::glslc)
+
+foreach (shader ${SHADER_SRC})
+	get_filename_component(shader_name ${shader} NAME)
+	set(shader_spirv ${CMAKE_CURRENT_BINARY_DIR}/shaders/${shader_name}.spv)
+	add_custom_command(
+		OUTPUT ${shader_spirv}
+		COMMAND ${GLSLC} ${CMAKE_CURRENT_SOURCE_DIR}/${shader} -o ${shader_spirv}
+		DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${shader}
+	)
+	list(APPEND SHADER_SPIRV ${shader_spirv})
+endforeach ()
+
+add_custom_target(shaders ALL DEPENDS ${SHADER_SPIRV})
