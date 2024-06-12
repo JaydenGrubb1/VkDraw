@@ -64,6 +64,8 @@ namespace VkDraw {
 	static VkRenderPass _render_pass;
 	static VkPipeline _pipeline;
 	static std::vector<VkFramebuffer> _framebuffers;
+	static VkCommandPool _command_pool;
+	static VkCommandBuffer _command_buffer;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -99,6 +101,50 @@ namespace VkDraw {
 		}
 
 		return module;
+	}
+
+	static void record_command(VkCommandBuffer cmd_buffer, uint32_t image_idx) {
+		VkCommandBufferBeginInfo buffer_info{};
+		buffer_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+		if (vkBeginCommandBuffer(cmd_buffer, &buffer_info) != VK_SUCCESS) {
+			throw std::runtime_error("Failed to begin command buffer!");
+		}
+
+		VkRenderPassBeginInfo render_info{};
+		render_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		render_info.renderPass = _render_pass;
+		render_info.framebuffer = _framebuffers[image_idx];
+		render_info.renderArea.offset = {0, 0};
+		render_info.renderArea.extent = _swapchain_extent;
+
+		VkClearValue clear_color = {0.0f, 0.0f, 0.0f, 1.0f};
+		render_info.clearValueCount = 1;
+		render_info.pClearValues = &clear_color;
+
+		vkCmdBeginRenderPass(cmd_buffer, &render_info, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline);
+
+		VkViewport viewport{};
+		viewport.x = 0.0f;
+		viewport.y = 0.0f;
+		viewport.width = static_cast<float>(_swapchain_extent.width);
+		viewport.height = static_cast<float>(_swapchain_extent.height);
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
+		vkCmdSetViewport(cmd_buffer, 0, 1, &viewport);
+
+		VkRect2D scissor{};
+		scissor.offset = {0, 0};
+		scissor.extent = _swapchain_extent;
+		vkCmdSetScissor(cmd_buffer, 0, 1, &scissor);
+
+		vkCmdDraw(cmd_buffer, 3, 1, 0, 0);
+		vkCmdEndRenderPass(cmd_buffer);
+
+		if (vkEndCommandBuffer(cmd_buffer) != VK_SUCCESS) {
+			throw std::runtime_error("Failed to record command buffer!");
+		}
 	}
 
 	int run(std::span<std::string_view> args) {
@@ -696,6 +742,33 @@ namespace VkDraw {
 			}
 		}
 
+		// create command pools
+		{
+			VkCommandPoolCreateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+			info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+			info.queueFamilyIndex = _queue_family.gfx_family.value();
+
+			if (vkCreateCommandPool(_logical_device, &info, nullptr, &_command_pool) != VK_SUCCESS) {
+				std::fprintf(stderr, "Vulkan: Failed to create command pool!");
+				return EXIT_FAILURE;
+			}
+		}
+
+		// create command buffers
+		{
+			VkCommandBufferAllocateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			info.commandPool = _command_pool;
+			info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			info.commandBufferCount = 1;
+
+			if (vkAllocateCommandBuffers(_logical_device, &info, &_command_buffer) != VK_SUCCESS) {
+				std::fprintf(stderr, "Vulkan: Failed to allocate command buffer!");
+				return EXIT_FAILURE;
+			}
+		}
+
 		SDL_Event event;
 		bool running = true;
 
@@ -714,6 +787,8 @@ namespace VkDraw {
 
 			SDL_RenderPresent(_renderer);
 		}
+
+		vkDestroyCommandPool(_logical_device, _command_pool, nullptr);
 
 		for (auto framebuffer : _framebuffers) {
 			vkDestroyFramebuffer(_logical_device, framebuffer, nullptr);
