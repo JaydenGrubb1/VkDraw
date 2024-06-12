@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <limits>
@@ -13,11 +14,14 @@
 
 #include "app.h"
 
-static constexpr auto WIDTH = 800;
-static constexpr auto HEIGHT = 600;
-static constexpr auto VALIDATION_LAYER = "VK_LAYER_KHRONOS_validation";
-static const std::vector<const char*> DEVICE_EXTENSIONS = {
-	VK_KHR_SWAPCHAIN_EXTENSION_NAME
+static constexpr auto WIDTH = 1280;
+static constexpr auto HEIGHT = 720;
+
+static constexpr std::array VALIDATION_LAYERS = {
+	"VK_LAYER_KHRONOS_validation"
+};
+static constexpr std::array DEVICE_EXTENSIONS = {
+	"VK_KHR_swapchain"
 };
 
 namespace VkDraw {
@@ -127,19 +131,18 @@ namespace VkDraw {
 			std::vector<VkLayerProperties> layers(count);
 			vkEnumerateInstanceLayerProperties(&count, layers.data());
 
-			bool found = false;
-			std::printf("Vulkan: %u layers/s supported {\n", count);
-			for (auto layer : layers) {
-				std::printf("\t%s\n", layer.layerName);
-				if (strcmp(layer.layerName, VALIDATION_LAYER) == 0) {
-					found = true;
+			for (const auto& required : VALIDATION_LAYERS) {
+				bool found = false;
+				for (const auto& layer : layers) {
+					if (strcmp(layer.layerName, required) == 0) {
+						found = true;
+						break;
+					}
 				}
-			}
-			std::printf("}\n");
-
-			if (!found) {
-				std::fprintf(stderr, "Vulkan: Validation layers requested but not supported!");
-				return EXIT_FAILURE;
+				if (!found) {
+					std::fprintf(stderr, "Vulkan: Validation layers requested but not supported!");
+					return EXIT_FAILURE;
+				}
 			}
 		}
 
@@ -152,8 +155,8 @@ namespace VkDraw {
 			info.ppEnabledExtensionNames = _required_extensions.data();
 
 			if (_use_validation) {
-				info.enabledLayerCount = 1;
-				info.ppEnabledLayerNames = &VALIDATION_LAYER;
+				info.enabledLayerCount = VALIDATION_LAYERS.size();
+				info.ppEnabledLayerNames = VALIDATION_LAYERS.data();
 			} else {
 				info.enabledLayerCount = 0;
 				info.ppEnabledLayerNames = nullptr;
@@ -290,8 +293,8 @@ namespace VkDraw {
 			info.enabledExtensionCount = DEVICE_EXTENSIONS.size();
 
 			if (_use_validation) {
-				info.enabledLayerCount = 1;
-				info.ppEnabledLayerNames = &VALIDATION_LAYER;
+				info.enabledLayerCount = VALIDATION_LAYERS.size();
+				info.ppEnabledLayerNames = VALIDATION_LAYERS.data();
 			} else {
 				info.enabledLayerCount = 0;
 				info.ppEnabledLayerNames = nullptr;
