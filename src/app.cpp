@@ -41,8 +41,6 @@ namespace VkDraw {
 	};
 
 	static SDL_Window* _window;
-	static SDL_Renderer* _renderer;
-
 	static VkApplicationInfo _app_info{};
 	static VkInstance _instance{};
 	static VkSurfaceKHR _surface{};
@@ -162,11 +160,6 @@ namespace VkDraw {
 		if (_window = SDL_CreateWindow("VkDraw", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT,
 		                               SDL_WINDOW_VULKAN); _window == nullptr) {
 			std::fprintf(stderr, "SDL: Window could not be created!\n");
-			return EXIT_FAILURE;
-		}
-
-		if (_renderer = SDL_CreateRenderer(_window, -1, SDL_RENDERER_ACCELERATED); _renderer == nullptr) {
-			std::fprintf(stderr, "SDL: Renderer could not be created!\n");
 			return EXIT_FAILURE;
 		}
 
@@ -780,12 +773,7 @@ namespace VkDraw {
 				}
 			}
 
-			SDL_SetRenderDrawColor(_renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
-			SDL_RenderClear(_renderer);
-
-			// TODO: draw frame here...
-
-			SDL_RenderPresent(_renderer);
+			// TODO: draw frame
 		}
 
 		vkDestroyCommandPool(_logical_device, _command_pool, nullptr);
@@ -807,7 +795,6 @@ namespace VkDraw {
 		vkDestroySurfaceKHR(_instance, _surface, nullptr);
 		vkDestroyInstance(_instance, nullptr);
 
-		SDL_DestroyRenderer(_renderer);
 		SDL_DestroyWindow(_window);
 		SDL_Quit();
 
