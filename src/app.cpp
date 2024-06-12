@@ -64,6 +64,9 @@ namespace VkDraw {
 	static std::vector<VkFramebuffer> _framebuffers;
 	static VkCommandPool _command_pool;
 	static VkCommandBuffer _command_buffer;
+	static VkSemaphore _image_available;
+	static VkSemaphore _render_finished;
+	static VkFence _in_flight;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -680,12 +683,22 @@ namespace VkDraw {
 				subpass.colorAttachmentCount = 1;
 				subpass.pColorAttachments = &reference;
 
+				VkSubpassDependency dependency{};
+				dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+				dependency.dstSubpass = 0;
+				dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+				dependency.srcAccessMask = 0;
+				dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+				dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
 				VkRenderPassCreateInfo info{};
 				info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 				info.attachmentCount = 1;
 				info.pAttachments = &attachment;
 				info.subpassCount = 1;
 				info.pSubpasses = &subpass;
+				info.dependencyCount = 1;
+				info.pDependencies = &dependency;
 
 				if (vkCreateRenderPass(_logical_device, &info, nullptr, &_render_pass) != VK_SUCCESS) {
 					std::fprintf(stderr, "Vulkan: Failed to create render pass!");
@@ -762,6 +775,30 @@ namespace VkDraw {
 			}
 		}
 
+		// create synchronization object
+		{
+			VkSemaphoreCreateInfo sem_info{};
+			sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+			if (vkCreateSemaphore(_logical_device, &sem_info, nullptr, &_image_available) != VK_SUCCESS) {
+				std::fprintf(stderr, "Vulkan: Failed to create semaphore!");
+				return EXIT_FAILURE;
+			}
+			if (vkCreateSemaphore(_logical_device, &sem_info, nullptr, &_render_finished) != VK_SUCCESS) {
+				std::fprintf(stderr, "Vulkan: Failed to create semaphore!");
+				return EXIT_FAILURE;
+			}
+
+			VkFenceCreateInfo fence_info{};
+			fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+			fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT; // ensure first frame is not blocked
+
+			if (vkCreateFence(_logical_device, &fence_info, nullptr, &_in_flight) != VK_SUCCESS) {
+				std::fprintf(stderr, "Vulkan: Failed to create fence!");
+				return EXIT_FAILURE;
+			}
+		}
+
 		SDL_Event event;
 		bool running = true;
 
@@ -773,9 +810,53 @@ namespace VkDraw {
 				}
 			}
 
-			// TODO: draw frame
+			vkWaitForFences(_logical_device, 1, &_in_flight, VK_TRUE, UINT64_MAX);
+			vkResetFences(_logical_device, 1, &_in_flight);
+
+			uint32_t image_idx;
+			vkAcquireNextImageKHR(_logical_device, _swapchain, UINT64_MAX, _image_available, VK_NULL_HANDLE,
+			                      &image_idx);
+
+			vkResetCommandBuffer(_command_buffer, 0);
+			record_command(_command_buffer, image_idx);
+
+			VkSemaphore wait[] = {_image_available};
+			VkSemaphore signal[] = {_render_finished};
+			VkPipelineStageFlags wait_stage[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+
+			VkSubmitInfo submit{};
+			submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			submit.waitSemaphoreCount = 1;
+			submit.pWaitSemaphores = wait;
+			submit.pWaitDstStageMask = wait_stage;
+			submit.commandBufferCount = 1;
+			submit.pCommandBuffers = &_command_buffer;
+			submit.signalSemaphoreCount = 1;
+			submit.pSignalSemaphores = signal;
+
+			if (vkQueueSubmit(_gfx_queue, 1, &submit, _in_flight) != VK_SUCCESS) {
+				std::fprintf(stderr, "Vulkan: Failed to submit queue!");
+				return EXIT_FAILURE;
+			}
+
+			VkSwapchainKHR swapchains[] = {_swapchain};
+
+			VkPresentInfoKHR present{};
+			present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+			present.waitSemaphoreCount = 1;
+			present.pWaitSemaphores = signal;
+			present.swapchainCount = 1;
+			present.pSwapchains = swapchains;
+			present.pImageIndices = &image_idx;
+
+			vkQueuePresentKHR(_present_queue, &present);
 		}
 
+		vkDeviceWaitIdle(_logical_device);
+
+		vkDestroyFence(_logical_device, _in_flight, nullptr);
+		vkDestroySemaphore(_logical_device, _render_finished, nullptr);
+		vkDestroySemaphore(_logical_device, _image_available, nullptr);
 		vkDestroyCommandPool(_logical_device, _command_pool, nullptr);
 
 		for (auto framebuffer : _framebuffers) {
