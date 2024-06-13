@@ -77,22 +77,19 @@ namespace VkDraw {
 	static bool _use_validation = true;
 #endif
 
-	static std::vector<char> read_shader(const std::string_view path) {
+	static VkShaderModule create_module(const std::string_view path) {
 		std::ifstream file(path.data(), std::ios::ate | std::ios::binary);
 		if (!file.is_open()) {
-			throw std::runtime_error("Failed to open file!");
+			throw std::runtime_error("Failed to open shader file!");
 		}
-		const auto size = file.tellg();
-		std::vector<char> output(size);
-		file.seekg(0);
-		file.read(output.data(), size);
-		file.close();
-		return output;
-	}
 
-	static VkShaderModule create_module(const std::string_view path) {
-		const auto code = read_shader(path);
+		const auto size = file.tellg();
+		std::vector<char> code(size);
 		std::printf("loaded %zu bytes from \"%s\"\n", code.size(), path.data());
+
+		file.seekg(0);
+		file.read(code.data(), size);
+		file.close();
 
 		VkShaderModuleCreateInfo info{};
 		info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
