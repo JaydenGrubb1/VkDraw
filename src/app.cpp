@@ -12,6 +12,7 @@
 #include <vulkan/vulkan.h>
 #include <SDL.h>
 #include <SDL_vulkan.h>
+#include <glm/glm.hpp>
 
 #include "app.h"
 
@@ -39,6 +40,41 @@ namespace VkDraw {
 		VkSurfaceCapabilitiesKHR capabilities{};
 		std::vector<VkSurfaceFormatKHR> formats;
 		std::vector<VkPresentModeKHR> present_modes;
+	};
+
+	struct Vertex {
+		glm::vec2 pos;
+		glm::vec3 color;
+
+		static VkVertexInputBindingDescription get_binding() {
+			VkVertexInputBindingDescription desc{};
+			desc.binding = 0;
+			desc.stride = sizeof(Vertex);
+			desc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+			return desc;
+		}
+
+		static std::array<VkVertexInputAttributeDescription, 2> get_attribute() {
+			std::array<VkVertexInputAttributeDescription, 2> desc{};
+
+			desc[0].binding = 0;
+			desc[0].location = 0;
+			desc[0].format = VK_FORMAT_R32G32_SFLOAT;
+			desc[0].offset = offsetof(Vertex, pos);
+
+			desc[1].binding = 0;
+			desc[1].location = 1;
+			desc[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+			desc[1].offset = offsetof(Vertex, color);
+
+			return desc;
+		}
+	};
+
+	const std::vector<Vertex> vertices = {
+		{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+		{{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+		{{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
 	};
 
 	static SDL_Window* _window;
@@ -70,6 +106,8 @@ namespace VkDraw {
 	static std::vector<VkFence> _in_flight;
 	static uint32_t _current_frame = 0;
 	static bool _window_resized = false;
+	static VkBuffer _vertex_buffer;
+	static VkDeviceMemory _vertex_buffer_memory;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -126,6 +164,10 @@ namespace VkDraw {
 		vkCmdBeginRenderPass(cmd_buffer, &render_info, VK_SUBPASS_CONTENTS_INLINE);
 		vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline);
 
+		VkBuffer buffers[] = {_vertex_buffer};
+		VkDeviceSize offsets[] = {0};
+		vkCmdBindVertexBuffers(cmd_buffer, 0, 1, buffers, offsets);
+
 		VkViewport viewport{};
 		viewport.x = 0.0f;
 		viewport.y = 0.0f;
@@ -140,7 +182,7 @@ namespace VkDraw {
 		scissor.extent = _swapchain_extent;
 		vkCmdSetScissor(cmd_buffer, 0, 1, &scissor);
 
-		vkCmdDraw(cmd_buffer, 3, 1, 0, 0);
+		vkCmdDraw(cmd_buffer, vertices.size(), 1, 0, 0);
 		vkCmdEndRenderPass(cmd_buffer);
 
 		if (vkEndCommandBuffer(cmd_buffer) != VK_SUCCESS) {
@@ -380,6 +422,19 @@ namespace VkDraw {
 		}
 
 		_current_frame = (_current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+	}
+
+	static uint32_t find_memory_type(const uint32_t filter, const VkMemoryPropertyFlags flags) {
+		VkPhysicalDeviceMemoryProperties properties{};
+		vkGetPhysicalDeviceMemoryProperties(_physical_device, &properties);
+
+		for (uint32_t i = 0; i < properties.memoryTypeCount; i++) {
+			if (filter & (1 << i) && (properties.memoryTypes[i].propertyFlags & flags) == flags) {
+				return i;
+			}
+		}
+
+		throw std::runtime_error("Failed to find suitable memory type!");
 	}
 
 	int run(std::span<std::string_view> args) {
@@ -647,12 +702,14 @@ namespace VkDraw {
 			pipeline_info.pStages = stages;
 
 			// vertex input stage
+			auto binding = Vertex::get_binding();
+			auto attribs = Vertex::get_attribute();
 			VkPipelineVertexInputStateCreateInfo vertex_input_stage{};
 			vertex_input_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-			vertex_input_stage.vertexBindingDescriptionCount = 0;
-			vertex_input_stage.pVertexBindingDescriptions = nullptr;
-			vertex_input_stage.vertexAttributeDescriptionCount = 0;
-			vertex_input_stage.pVertexAttributeDescriptions = nullptr;
+			vertex_input_stage.vertexBindingDescriptionCount = 1;
+			vertex_input_stage.pVertexBindingDescriptions = &binding;
+			vertex_input_stage.vertexAttributeDescriptionCount = attribs.size();
+			vertex_input_stage.pVertexAttributeDescriptions = attribs.data();
 			pipeline_info.pVertexInputState = &vertex_input_stage;
 
 			// input assembly
@@ -849,6 +906,47 @@ namespace VkDraw {
 			}
 		}
 
+		// create vertex buffer
+		{
+			VkBufferCreateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+			info.size = sizeof(Vertex) * vertices.size();
+			info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+			info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+			if (vkCreateBuffer(_logical_device, &info, nullptr, &_vertex_buffer) != VK_SUCCESS) {
+				throw std::runtime_error("Failed to create vertex buffer!");
+			}
+		}
+
+		// allocate memory for vertex buffer
+		{
+			VkMemoryRequirements requirements{};
+			vkGetBufferMemoryRequirements(_logical_device, _vertex_buffer, &requirements);
+
+			VkMemoryAllocateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+			info.allocationSize = requirements.size;
+			info.memoryTypeIndex = find_memory_type(requirements.memoryTypeBits,
+			                                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+			                                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+			if (vkAllocateMemory(_logical_device, &info, nullptr, &_vertex_buffer_memory) != VK_SUCCESS) {
+				throw std::runtime_error("Failed to allocate vertex buffer memory!");
+			}
+
+			vkBindBufferMemory(_logical_device, _vertex_buffer, _vertex_buffer_memory, 0);
+		}
+
+		// fill vertex buffer
+		{
+			auto amount = sizeof(Vertex) * vertices.size();
+			void* data;
+			vkMapMemory(_logical_device, _vertex_buffer_memory, 0, amount, 0, &data);
+			memcpy(data, vertices.data(), amount);
+			vkUnmapMemory(_logical_device, _vertex_buffer_memory);
+		}
+
 		SDL_Event event;
 		bool running = true;
 
@@ -899,6 +997,9 @@ namespace VkDraw {
 		}
 
 		vkDestroyCommandPool(_logical_device, _command_pool, nullptr);
+
+		vkDestroyBuffer(_logical_device, _vertex_buffer, nullptr);
+		vkFreeMemory(_logical_device, _vertex_buffer_memory, nullptr);
 
 		vkDestroyPipeline(_logical_device, _pipeline, nullptr);
 		vkDestroyRenderPass(_logical_device, _render_pass, nullptr);
