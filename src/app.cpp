@@ -17,6 +17,7 @@
 
 static constexpr auto WIDTH = 1280;
 static constexpr auto HEIGHT = 720;
+static constexpr auto MAX_FRAMES_IN_FLIGHT = 2;
 
 static constexpr std::string_view VERT_SHADER_PATH = "shaders/shader.vert.spv";
 static constexpr std::string_view FRAG_SHADER_PATH = "shaders/shader.frag.spv";
@@ -63,10 +64,11 @@ namespace VkDraw {
 	static VkPipeline _pipeline;
 	static std::vector<VkFramebuffer> _framebuffers;
 	static VkCommandPool _command_pool;
-	static VkCommandBuffer _command_buffer;
-	static VkSemaphore _image_available;
-	static VkSemaphore _render_finished;
-	static VkFence _in_flight;
+	static std::vector<VkCommandBuffer> _command_buffer;
+	static std::vector<VkSemaphore> _image_available;
+	static std::vector<VkSemaphore> _render_finished;
+	static std::vector<VkFence> _in_flight;
+	static uint32_t _current_frame = 0;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -761,15 +763,23 @@ namespace VkDraw {
 			}
 		}
 
+		// setup in-flight arrays
+		{
+			_command_buffer.resize(MAX_FRAMES_IN_FLIGHT);
+			_image_available.resize(MAX_FRAMES_IN_FLIGHT);
+			_render_finished.resize(MAX_FRAMES_IN_FLIGHT);
+			_in_flight.resize(MAX_FRAMES_IN_FLIGHT);
+		}
+
 		// create command buffers
 		{
 			VkCommandBufferAllocateInfo info{};
 			info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 			info.commandPool = _command_pool;
 			info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-			info.commandBufferCount = 1;
+			info.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
 
-			if (vkAllocateCommandBuffers(_logical_device, &info, &_command_buffer) != VK_SUCCESS) {
+			if (vkAllocateCommandBuffers(_logical_device, &info, _command_buffer.data()) != VK_SUCCESS) {
 				std::fprintf(stderr, "Vulkan: Failed to allocate command buffer!");
 				return EXIT_FAILURE;
 			}
@@ -780,22 +790,23 @@ namespace VkDraw {
 			VkSemaphoreCreateInfo sem_info{};
 			sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
-			if (vkCreateSemaphore(_logical_device, &sem_info, nullptr, &_image_available) != VK_SUCCESS) {
-				std::fprintf(stderr, "Vulkan: Failed to create semaphore!");
-				return EXIT_FAILURE;
-			}
-			if (vkCreateSemaphore(_logical_device, &sem_info, nullptr, &_render_finished) != VK_SUCCESS) {
-				std::fprintf(stderr, "Vulkan: Failed to create semaphore!");
-				return EXIT_FAILURE;
-			}
-
 			VkFenceCreateInfo fence_info{};
 			fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 			fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT; // ensure first frame is not blocked
 
-			if (vkCreateFence(_logical_device, &fence_info, nullptr, &_in_flight) != VK_SUCCESS) {
-				std::fprintf(stderr, "Vulkan: Failed to create fence!");
-				return EXIT_FAILURE;
+			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+				if (vkCreateSemaphore(_logical_device, &sem_info, nullptr, &_image_available[i]) != VK_SUCCESS) {
+					std::fprintf(stderr, "Vulkan: Failed to create semaphore!");
+					return EXIT_FAILURE;
+				}
+				if (vkCreateSemaphore(_logical_device, &sem_info, nullptr, &_render_finished[i]) != VK_SUCCESS) {
+					std::fprintf(stderr, "Vulkan: Failed to create semaphore!");
+					return EXIT_FAILURE;
+				}
+				if (vkCreateFence(_logical_device, &fence_info, nullptr, &_in_flight[i]) != VK_SUCCESS) {
+					std::fprintf(stderr, "Vulkan: Failed to create fence!");
+					return EXIT_FAILURE;
+				}
 			}
 		}
 
@@ -823,7 +834,6 @@ namespace VkDraw {
 				SDL_SetWindowTitle(_window, title);
 			}
 
-
 			while (SDL_PollEvent(&event)) {
 				if (event.type == SDL_QUIT) {
 					running = false;
@@ -831,18 +841,19 @@ namespace VkDraw {
 				}
 			}
 
-			vkWaitForFences(_logical_device, 1, &_in_flight, VK_TRUE, UINT64_MAX);
-			vkResetFences(_logical_device, 1, &_in_flight);
+			vkWaitForFences(_logical_device, 1, &_in_flight[_current_frame], VK_TRUE, UINT64_MAX);
+			vkResetFences(_logical_device, 1, &_in_flight[_current_frame]);
 
 			uint32_t image_idx;
-			vkAcquireNextImageKHR(_logical_device, _swapchain, UINT64_MAX, _image_available, VK_NULL_HANDLE,
+			vkAcquireNextImageKHR(_logical_device, _swapchain, UINT64_MAX, _image_available[_current_frame],
+			                      VK_NULL_HANDLE,
 			                      &image_idx);
 
-			vkResetCommandBuffer(_command_buffer, 0);
-			record_command(_command_buffer, image_idx);
+			vkResetCommandBuffer(_command_buffer[_current_frame], 0);
+			record_command(_command_buffer[_current_frame], image_idx);
 
-			VkSemaphore wait[] = {_image_available};
-			VkSemaphore signal[] = {_render_finished};
+			VkSemaphore wait[] = {_image_available[_current_frame]};
+			VkSemaphore signal[] = {_render_finished[_current_frame]};
 			VkPipelineStageFlags wait_stage[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
 
 			VkSubmitInfo submit{};
@@ -851,11 +862,11 @@ namespace VkDraw {
 			submit.pWaitSemaphores = wait;
 			submit.pWaitDstStageMask = wait_stage;
 			submit.commandBufferCount = 1;
-			submit.pCommandBuffers = &_command_buffer;
+			submit.pCommandBuffers = &_command_buffer[_current_frame];
 			submit.signalSemaphoreCount = 1;
 			submit.pSignalSemaphores = signal;
 
-			if (vkQueueSubmit(_gfx_queue, 1, &submit, _in_flight) != VK_SUCCESS) {
+			if (vkQueueSubmit(_gfx_queue, 1, &submit, _in_flight[_current_frame]) != VK_SUCCESS) {
 				std::fprintf(stderr, "Vulkan: Failed to submit queue!");
 				return EXIT_FAILURE;
 			}
@@ -871,13 +882,17 @@ namespace VkDraw {
 			present.pImageIndices = &image_idx;
 
 			vkQueuePresentKHR(_present_queue, &present);
+			_current_frame = (_current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 		}
 
 		vkDeviceWaitIdle(_logical_device);
 
-		vkDestroyFence(_logical_device, _in_flight, nullptr);
-		vkDestroySemaphore(_logical_device, _render_finished, nullptr);
-		vkDestroySemaphore(_logical_device, _image_available, nullptr);
+		for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			vkDestroyFence(_logical_device, _in_flight[i], nullptr);
+			vkDestroySemaphore(_logical_device, _render_finished[i], nullptr);
+			vkDestroySemaphore(_logical_device, _image_available[i], nullptr);
+		}
+
 		vkDestroyCommandPool(_logical_device, _command_pool, nullptr);
 
 		for (auto framebuffer : _framebuffers) {
