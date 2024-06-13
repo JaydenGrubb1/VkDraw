@@ -318,6 +318,9 @@ namespace VkDraw {
 	}
 
 	static void recreate_swapchain() {
+		if (SDL_GetWindowFlags(_window) & SDL_WINDOW_MINIMIZED) {
+			return;
+		}
 		vkDeviceWaitIdle(_logical_device);
 		cleanup_swapchain();
 		create_swapchain();
@@ -397,13 +400,6 @@ namespace VkDraw {
 		                               SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE); _window == nullptr) {
 			throw std::runtime_error("Failed to create SDL Window!");
 		}
-
-		SDL_AddEventWatch([]([[maybe_unused]] void* data, SDL_Event* event) {
-			if (event->type == SDL_WINDOWEVENT && event->window.event == SDL_WINDOWEVENT_RESIZED) {
-				_window_resized = true;
-			}
-			return 0;
-		}, _window);
 
 		_app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 		_app_info.pNext = nullptr;
@@ -881,8 +877,15 @@ namespace VkDraw {
 			}
 
 			while (SDL_PollEvent(&event)) {
-				if (event.type == SDL_QUIT) {
+				switch (event.type) {
+				case SDL_QUIT:
 					running = false;
+					break;
+				case SDL_WINDOWEVENT:
+					if (event.window.type == SDL_WINDOWEVENT_RESIZED) {
+						_window_resized = true;
+					}
+				default:
 					break;
 				}
 			}
