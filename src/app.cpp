@@ -390,14 +390,12 @@ namespace VkDraw {
 		}
 
 		if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-			std::fprintf(stderr, "SDL: Failed to initialize!\n");
-			return EXIT_FAILURE;
+			throw std::runtime_error("Failed to initialize SDL!");
 		}
 
 		if (_window = SDL_CreateWindow("VkDraw", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT,
 		                               SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE); _window == nullptr) {
-			std::fprintf(stderr, "SDL: Window could not be created!\n");
-			return EXIT_FAILURE;
+			throw std::runtime_error("Failed to create SDL Window!");
 		}
 
 		SDL_AddEventWatch([]([[maybe_unused]] void* data, SDL_Event* event) {
@@ -461,8 +459,7 @@ namespace VkDraw {
 					}
 				}
 				if (!found) {
-					std::fprintf(stderr, "Vulkan: Validation layers requested but not supported!");
-					return EXIT_FAILURE;
+					throw std::runtime_error("Requested validation layer is not supported");
 				}
 			}
 		}
@@ -484,16 +481,14 @@ namespace VkDraw {
 			}
 
 			if (vkCreateInstance(&info, nullptr, &_instance) != VK_SUCCESS) {
-				std::fprintf(stderr, "Vulkan: Failed to create instance!");
-				return EXIT_FAILURE;
+				throw std::runtime_error("Failed to create Vulkan instance!");
 			}
 		}
 
 		// create window surface
 		{
 			if (SDL_Vulkan_CreateSurface(_window, _instance, &_surface) != SDL_TRUE) {
-				std::fprintf(stderr, "Vulkan: Failed to create window surface!");
-				return EXIT_FAILURE;
+				throw std::runtime_error("Failed to create window surface!");
 			}
 		}
 
@@ -546,8 +541,7 @@ namespace VkDraw {
 			std::printf("}\n");
 
 			if (_physical_device == nullptr) {
-				std::fprintf(stderr, "Vulkan: No suitable graphics device was found!");
-				return EXIT_FAILURE;
+				throw std::runtime_error("No suitable graphics device was found!");
 			}
 		}
 
@@ -576,12 +570,10 @@ namespace VkDraw {
 			}
 
 			if (!_queue_family.gfx_family.has_value()) {
-				std::fprintf(stderr, "Vulkan: No suitable graphics queue family available!");
-				return EXIT_FAILURE;
+				throw std::runtime_error("No suitable graphics queue family available!");
 			}
 			if (!_queue_family.present_family.has_value()) {
-				std::fprintf(stderr, "Vulkan: No sutiable presentation queue family available!");
-				return EXIT_FAILURE;
+				throw std::runtime_error("No suitable presentation queue family available!");
 			}
 		}
 
@@ -622,8 +614,7 @@ namespace VkDraw {
 			}
 
 			if (vkCreateDevice(_physical_device, &info, nullptr, &_logical_device) != VK_SUCCESS) {
-				std::fprintf(stderr, "Vulkan: Failed to create logical device!");
-				return EXIT_FAILURE;
+				throw std::runtime_error("Failed to create logical device!");
 			}
 		}
 
@@ -743,8 +734,7 @@ namespace VkDraw {
 				info.pPushConstantRanges = nullptr;
 
 				if (vkCreatePipelineLayout(_logical_device, &info, nullptr, &_pipeline_layout) != VK_SUCCESS) {
-					std::fprintf(stderr, "Vulkan: Failed to create pipeline layout!");
-					return EXIT_FAILURE;
+					throw std::runtime_error("Failed to create pipeline layout!");
 				}
 
 				pipeline_info.layout = _pipeline_layout;
@@ -789,8 +779,7 @@ namespace VkDraw {
 				info.pDependencies = &dependency;
 
 				if (vkCreateRenderPass(_logical_device, &info, nullptr, &_render_pass) != VK_SUCCESS) {
-					std::fprintf(stderr, "Vulkan: Failed to create render pass!");
-					return EXIT_FAILURE;
+					throw std::runtime_error("Failed to create render pass!");
 				}
 
 				pipeline_info.renderPass = _render_pass;
@@ -802,8 +791,7 @@ namespace VkDraw {
 
 			if (vkCreateGraphicsPipelines(_logical_device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &_pipeline) !=
 				VK_SUCCESS) {
-				std::fprintf(stderr, "Vulkan: Failed to create graphics pipeline!");
-				return EXIT_FAILURE;
+				throw std::runtime_error("Failed to create graphics pipeline!");
 			}
 
 			// cleanup shader modules
@@ -821,8 +809,7 @@ namespace VkDraw {
 			info.queueFamilyIndex = _queue_family.gfx_family.value();
 
 			if (vkCreateCommandPool(_logical_device, &info, nullptr, &_command_pool) != VK_SUCCESS) {
-				std::fprintf(stderr, "Vulkan: Failed to create command pool!");
-				return EXIT_FAILURE;
+				throw std::runtime_error("Failed to create command pool!");
 			}
 		}
 
@@ -843,8 +830,7 @@ namespace VkDraw {
 			info.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
 
 			if (vkAllocateCommandBuffers(_logical_device, &info, _command_buffer.data()) != VK_SUCCESS) {
-				std::fprintf(stderr, "Vulkan: Failed to allocate command buffer!");
-				return EXIT_FAILURE;
+				throw std::runtime_error("Failed to allocate command buffer!");
 			}
 		}
 
@@ -859,16 +845,13 @@ namespace VkDraw {
 
 			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 				if (vkCreateSemaphore(_logical_device, &sem_info, nullptr, &_image_available[i]) != VK_SUCCESS) {
-					std::fprintf(stderr, "Vulkan: Failed to create semaphore!");
-					return EXIT_FAILURE;
+					throw std::runtime_error("Failed to create image_available semaphore!");
 				}
 				if (vkCreateSemaphore(_logical_device, &sem_info, nullptr, &_render_finished[i]) != VK_SUCCESS) {
-					std::fprintf(stderr, "Vulkan: Failed to create semaphore!");
-					return EXIT_FAILURE;
+					throw std::runtime_error("Failed to create render_finished semaphore!");
 				}
 				if (vkCreateFence(_logical_device, &fence_info, nullptr, &_in_flight[i]) != VK_SUCCESS) {
-					std::fprintf(stderr, "Vulkan: Failed to create fence!");
-					return EXIT_FAILURE;
+					throw std::runtime_error("Failed to create in_flight fence!");
 				}
 			}
 		}
