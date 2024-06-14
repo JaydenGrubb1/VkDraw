@@ -41,12 +41,12 @@ namespace VkDraw {
 		std::vector<VkPresentModeKHR> present_modes;
 	};
 
-	static SDL_Window* _window;
+	static SDL_Window *_window;
 	static VkApplicationInfo _app_info{};
 	static VkInstance _instance{};
 	static VkSurfaceKHR _surface{};
 	static std::vector<VkExtensionProperties> _supported_extensions;
-	static std::vector<const char*> _required_extensions;
+	static std::vector<const char *> _required_extensions;
 	static VkPhysicalDevice _physical_device = nullptr;
 	static VkDevice _logical_device = nullptr;
 	static QueueFamilyIndex _queue_family;
@@ -94,7 +94,7 @@ namespace VkDraw {
 		VkShaderModuleCreateInfo info{};
 		info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 		info.codeSize = code.size();
-		info.pCode = reinterpret_cast<const uint32_t*>(code.data());
+		info.pCode = reinterpret_cast<const uint32_t *>(code.data());
 
 		VkShaderModule module;
 		if (vkCreateShaderModule(_logical_device, &info, nullptr, &module) != VK_SUCCESS) {
@@ -119,7 +119,7 @@ namespace VkDraw {
 		render_info.renderArea.offset = {0, 0};
 		render_info.renderArea.extent = _swapchain_extent;
 
-		VkClearValue clear_color = {0.0f, 0.0f, 0.0f, 1.0f};
+		VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
 		render_info.clearValueCount = 1;
 		render_info.pClearValues = &clear_color;
 
@@ -181,7 +181,7 @@ namespace VkDraw {
 		{
 			for (auto format : _swapchain_support.formats) {
 				if (format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace ==
-					VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+				                                                VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
 					_swapchain_format = format;
 					break;
 				}
@@ -237,14 +237,14 @@ namespace VkDraw {
 		info.clipped = VK_TRUE;
 		info.oldSwapchain = nullptr;
 
-		uint32_t queue_indexs[] = {_queue_family.gfx_family.value(), _queue_family.present_family.value()};
+		uint32_t queue_indices[] = {_queue_family.gfx_family.value(), _queue_family.present_family.value()};
 
 		if (_queue_family.gfx_family == _queue_family.present_family) {
 			info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		} else {
 			info.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
 			info.queueFamilyIndexCount = 2;
-			info.pQueueFamilyIndices = queue_indexs;
+			info.pQueueFamilyIndices = queue_indices;
 		}
 
 		if (vkCreateSwapchainKHR(_logical_device, &info, nullptr, &_swapchain) != VK_SUCCESS) {
@@ -252,7 +252,7 @@ namespace VkDraw {
 		}
 	}
 
-	static void create_imageviews() {
+	static void create_image_views() {
 		uint32_t count;
 		vkGetSwapchainImagesKHR(_logical_device, _swapchain, &count, nullptr);
 		_swapchain_images.resize(count);
@@ -321,7 +321,7 @@ namespace VkDraw {
 		vkDeviceWaitIdle(_logical_device);
 		cleanup_swapchain();
 		create_swapchain();
-		create_imageviews();
+		create_image_views();
 		create_framebuffers();
 		_window_resized = false;
 	}
@@ -383,10 +383,10 @@ namespace VkDraw {
 	}
 
 	int run(std::span<std::string_view> args) {
-		// print all arguements
+		// print all arguments
 		for (auto [idx, arg] : std::views::enumerate(args)) {
 			std::printf("arg[%zu] = %s\n", idx, arg.data());
-			// TODO: parse arguements
+			// TODO: parse arguments
 		}
 
 		if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -398,13 +398,26 @@ namespace VkDraw {
 			throw std::runtime_error("Failed to create SDL Window!");
 		}
 
+		uint32_t ver;
+		vkEnumerateInstanceVersion(&ver);
+		std::printf("Vulkan: API version = %d.%d.%d-%d\n",
+		            VK_API_VERSION_MAJOR(ver),
+		            VK_API_VERSION_MINOR(ver),
+		            VK_API_VERSION_PATCH(ver),
+		            VK_API_VERSION_VARIANT(ver)
+		);
+
+		if (ver < VK_API_VERSION_1_3) {
+			throw std::runtime_error("Unsupported API version, must be at least version 1.3.0");
+		}
+
 		_app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 		_app_info.pNext = nullptr;
 		_app_info.pApplicationName = "VkDraw";
 		_app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
 		_app_info.pEngineName = "NA";
 		_app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-		_app_info.apiVersion = VK_API_VERSION_1_0;
+		_app_info.apiVersion = VK_API_VERSION_1_3;
 
 		// check supported Vulkan extension
 		{
@@ -414,7 +427,7 @@ namespace VkDraw {
 			vkEnumerateInstanceExtensionProperties(nullptr, &count, _supported_extensions.data());
 
 			std::printf("Vulkan: %u extension/s supported {\n", count);
-			for (const auto& ext : _supported_extensions) {
+			for (const auto &ext : _supported_extensions) {
 				std::printf("\t%s\n", ext.extensionName);
 			}
 			std::printf("}\n");
@@ -443,9 +456,9 @@ namespace VkDraw {
 			std::vector<VkLayerProperties> layers(count);
 			vkEnumerateInstanceLayerProperties(&count, layers.data());
 
-			for (const auto& required : VALIDATION_LAYERS) {
+			for (const auto &required : VALIDATION_LAYERS) {
 				bool found = false;
-				for (const auto& layer : layers) {
+				for (const auto &layer : layers) {
 					if (strcmp(layer.layerName, required) == 0) {
 						found = true;
 						break;
@@ -493,7 +506,7 @@ namespace VkDraw {
 			vkEnumeratePhysicalDevices(_instance, &count, devices.data());
 
 			std::printf("Vulkan: %u device/s found {\n", count);
-			for (const auto& device : devices) {
+			for (const auto &device : devices) {
 				VkPhysicalDeviceProperties properties;
 				vkGetPhysicalDeviceProperties(device, &properties);
 
@@ -509,9 +522,9 @@ namespace VkDraw {
 					std::vector<VkExtensionProperties> ext_properties(ext_count);
 					vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count, ext_properties.data());
 
-					for (const auto& required : DEVICE_EXTENSIONS) {
+					for (const auto &required : DEVICE_EXTENSIONS) {
 						bool found = false;
-						for (const auto& ext : ext_properties) {
+						for (const auto &ext : ext_properties) {
 							if (strcmp(ext.extensionName, required) == 0) {
 								found = true;
 								break;
@@ -525,7 +538,7 @@ namespace VkDraw {
 				}
 
 				// TODO: also check queue family support
-				// TODO: also check swapchain supprt
+				// TODO: also check swapchain support
 				// TODO: "rank" devices by non-essential features
 				if (dedicated && supports_extensions) {
 					_physical_device = device;
@@ -573,12 +586,12 @@ namespace VkDraw {
 		// create logical device
 		{
 			std::vector<VkDeviceQueueCreateInfo> families;
-			std::set<uint32_t> unique_familes = {
+			std::set<uint32_t> unique_families = {
 				_queue_family.gfx_family.value(), _queue_family.present_family.value()
 			};
 			float priority = 1.0f;
 
-			for (auto family : unique_familes) {
+			for (auto family : unique_families) {
 				VkDeviceQueueCreateInfo info{};
 				info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 				info.queueFamilyIndex = family;
@@ -618,7 +631,7 @@ namespace VkDraw {
 		}
 
 		create_swapchain();
-		create_imageviews();
+		create_image_views();
 
 		// create graphics pipeline
 		{
@@ -694,7 +707,7 @@ namespace VkDraw {
 			// color blending
 			VkPipelineColorBlendAttachmentState blend_attachment{};
 			blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-				VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+			                                  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 			blend_attachment.blendEnable = VK_FALSE;
 
 			VkPipelineColorBlendStateCreateInfo blending_state{};
@@ -783,7 +796,7 @@ namespace VkDraw {
 			pipeline_info.basePipelineIndex = -1;
 
 			if (vkCreateGraphicsPipelines(_logical_device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &_pipeline) !=
-				VK_SUCCESS) {
+			    VK_SUCCESS) {
 				throw std::runtime_error("Failed to create graphics pipeline!");
 			}
 
@@ -875,15 +888,15 @@ namespace VkDraw {
 
 			while (SDL_PollEvent(&event)) {
 				switch (event.type) {
-				case SDL_QUIT:
-					running = false;
-					break;
-				case SDL_WINDOWEVENT:
-					if (event.window.type == SDL_WINDOWEVENT_RESIZED) {
-						_window_resized = true;
-					}
-				default:
-					break;
+					case SDL_QUIT:
+						running = false;
+						break;
+					case SDL_WINDOWEVENT:
+						if (event.window.type == SDL_WINDOWEVENT_RESIZED) {
+							_window_resized = true;
+						}
+					default:
+						break;
 				}
 			}
 
