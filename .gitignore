@@ -36,3 +36,10 @@ build/
 
 # Cache directory
 .cache/
+
+# Idea directories/files
+.idea/dataSources/
+.idea/httpRequests/
+.idea/shelf/
+.idea/workspace.xml
+.idea/dataSources.local.xml

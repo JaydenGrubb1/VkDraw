@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <vulkan/vulkan.h>
+
 #include <SDL.h>
 #include <SDL_vulkan.h>
 #include <glm/glm.hpp>
@@ -77,7 +78,7 @@ namespace VkDraw {
 		{{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
 	};
 
-	static SDL_Window* _window;
+	static SDL_Window *_window;
 	static VkApplicationInfo _app_info{};
 	static VkInstance _instance{};
 	static VkSurfaceKHR _surface{};
@@ -201,8 +202,9 @@ namespace VkDraw {
 				uint32_t count;
 				vkGetPhysicalDeviceSurfaceFormatsKHR(_physical_device, _surface, &count, nullptr);
 				_swapchain_support.formats.resize(count);
-				vkGetPhysicalDeviceSurfaceFormatsKHR(_physical_device, _surface, &count,
-				                                     _swapchain_support.formats.data());
+				vkGetPhysicalDeviceSurfaceFormatsKHR(
+					_physical_device, _surface, &count, _swapchain_support.formats.data()
+				);
 			}
 
 			// get surface presentation modes
@@ -210,8 +212,9 @@ namespace VkDraw {
 				uint32_t count;
 				vkGetPhysicalDeviceSurfacePresentModesKHR(_physical_device, _surface, &count, nullptr);
 				_swapchain_support.present_modes.resize(count);
-				vkGetPhysicalDeviceSurfacePresentModesKHR(_physical_device, _surface, &count,
-				                                          _swapchain_support.present_modes.data());
+				vkGetPhysicalDeviceSurfacePresentModesKHR(
+					_physical_device, _surface, &count, _swapchain_support.present_modes.data()
+				);
 			}
 
 			if (_swapchain_support.formats.empty() || _swapchain_support.present_modes.empty()) {
@@ -222,8 +225,8 @@ namespace VkDraw {
 		// select swapchain format
 		{
 			for (auto format : _swapchain_support.formats) {
-				if (format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace ==
-				                                                VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+				if (format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+					format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
 					_swapchain_format = format;
 					break;
 				}
@@ -233,7 +236,7 @@ namespace VkDraw {
 
 		// select swapchain presentation mode
 		{
-			for (auto mode : _swapchain_support.present_modes) {
+			for (const auto mode : _swapchain_support.present_modes) {
 				if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
 					_swapchain_mode = mode;
 				}
@@ -248,12 +251,16 @@ namespace VkDraw {
 				int height;
 				SDL_Vulkan_GetDrawableSize(_window, &width, &height);
 
-				_swapchain_extent.width = std::clamp(static_cast<uint32_t>(width),
-				                                     _swapchain_support.capabilities.minImageExtent.width,
-				                                     _swapchain_support.capabilities.maxImageExtent.width);
-				_swapchain_extent.height = std::clamp(static_cast<uint32_t>(height),
-				                                      _swapchain_support.capabilities.minImageExtent.height,
-				                                      _swapchain_support.capabilities.maxImageExtent.height);
+				_swapchain_extent.width = std::clamp(
+					static_cast<uint32_t>(width),
+					_swapchain_support.capabilities.minImageExtent.width,
+					_swapchain_support.capabilities.maxImageExtent.width
+				);
+				_swapchain_extent.height = std::clamp(
+					static_cast<uint32_t>(height),
+					_swapchain_support.capabilities.minImageExtent.height,
+					_swapchain_support.capabilities.maxImageExtent.height
+				);
 			} else {
 				_swapchain_extent = _swapchain_support.capabilities.currentExtent;
 			}
@@ -261,8 +268,10 @@ namespace VkDraw {
 
 		std::printf("Vulkan: creating swapchain (%ux%u)\n", _swapchain_extent.width, _swapchain_extent.height);
 
-		uint32_t image_count = std::min(_swapchain_support.capabilities.minImageCount + 1,
-		                                _swapchain_support.capabilities.maxImageCount);
+		const uint32_t image_count = std::min(
+			_swapchain_support.capabilities.minImageCount + 1,
+			_swapchain_support.capabilities.maxImageCount
+		);
 
 		VkSwapchainCreateInfoKHR info{};
 		info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -270,8 +279,8 @@ namespace VkDraw {
 		info.minImageCount = image_count;
 		info.imageFormat = _swapchain_format.format;
 		info.imageColorSpace = _swapchain_format.colorSpace;
-		info.imageExtent = _swapchain_extent;
 		info.imageArrayLayers = 1; // unless using VR
+		info.imageExtent = _swapchain_extent;
 		info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // render direct to image for now
 		info.preTransform = _swapchain_support.capabilities.currentTransform;
 		info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -372,8 +381,9 @@ namespace VkDraw {
 		vkWaitForFences(_logical_device, 1, &_in_flight[_current_frame], VK_TRUE, UINT64_MAX);
 
 		uint32_t image_idx;
-		auto res = vkAcquireNextImageKHR(_logical_device, _swapchain, UINT64_MAX, _image_available[_current_frame],
-		                                 VK_NULL_HANDLE, &image_idx);
+		auto res = vkAcquireNextImageKHR(
+			_logical_device, _swapchain, UINT64_MAX, _image_available[_current_frame],VK_NULL_HANDLE, &image_idx
+		);
 		if (res == VK_ERROR_OUT_OF_DATE_KHR) {
 			recreate_swapchain();
 			return;
@@ -448,18 +458,19 @@ namespace VkDraw {
 			throw std::runtime_error("Failed to initialize SDL!");
 		}
 
-		if (_window = SDL_CreateWindow("VkDraw", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT,
-		                               SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE); _window == nullptr) {
+		if (_window = SDL_CreateWindow(
+			"VkDraw", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT,
+			SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
+		); _window == nullptr) {
 			throw std::runtime_error("Failed to create SDL Window!");
 		}
 
 		uint32_t ver;
 		vkEnumerateInstanceVersion(&ver);
-		std::printf("Vulkan: API version = %d.%d.%d-%d\n",
-		            VK_API_VERSION_MAJOR(ver),
-		            VK_API_VERSION_MINOR(ver),
-		            VK_API_VERSION_PATCH(ver),
-		            VK_API_VERSION_VARIANT(ver)
+		std::printf(
+			"Vulkan: API version = %d.%d.%d-%d\n",
+			VK_API_VERSION_MAJOR(ver), VK_API_VERSION_MINOR(ver),
+			VK_API_VERSION_PATCH(ver), VK_API_VERSION_VARIANT(ver)
 		);
 
 		if (ver < VK_API_VERSION_1_3) {
@@ -763,8 +774,9 @@ namespace VkDraw {
 
 			// color blending
 			VkPipelineColorBlendAttachmentState blend_attachment{};
-			blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-			                                  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+			blend_attachment.colorWriteMask =
+				VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+				VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 			blend_attachment.blendEnable = VK_FALSE;
 
 			VkPipelineColorBlendStateCreateInfo blending_state{};
@@ -852,8 +864,9 @@ namespace VkDraw {
 			pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
 			pipeline_info.basePipelineIndex = -1;
 
-			if (vkCreateGraphicsPipelines(_logical_device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &_pipeline) !=
-			    VK_SUCCESS) {
+			if (vkCreateGraphicsPipelines(
+				_logical_device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &_pipeline
+			) != VK_SUCCESS) {
 				throw std::runtime_error("Failed to create graphics pipeline!");
 			}
 
@@ -940,9 +953,10 @@ namespace VkDraw {
 			VkMemoryAllocateInfo info{};
 			info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 			info.allocationSize = requirements.size;
-			info.memoryTypeIndex = find_memory_type(requirements.memoryTypeBits,
-			                                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-			                                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+			info.memoryTypeIndex = find_memory_type(
+				requirements.memoryTypeBits,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+			);
 
 			if (vkAllocateMemory(_logical_device, &info, nullptr, &_vertex_buffer_memory) != VK_SUCCESS) {
 				throw std::runtime_error("Failed to allocate vertex buffer memory!");
@@ -954,7 +968,7 @@ namespace VkDraw {
 		// fill vertex buffer
 		{
 			auto amount = sizeof(Vertex) * vertices.size();
-			void* data;
+			void *data;
 			vkMapMemory(_logical_device, _vertex_buffer_memory, 0, amount, 0, &data);
 			memcpy(data, vertices.data(), amount);
 			vkUnmapMemory(_logical_device, _vertex_buffer_memory);
