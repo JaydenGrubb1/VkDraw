@@ -73,9 +73,15 @@ namespace VkDraw {
 	};
 
 	const std::vector<Vertex> vertices = {
-		{{0.0f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-		{{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-		{{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
+		{{-1.0f, -1.0f}, {1.0f, 0.0f, 0.0f}},
+		{{1.0f, -1.0f}, {0.0f, 1.0f, 0.0f}},
+		{{1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
+		{{-1.0f, 1.0f}, {1.0f, 1.0f, 0.0f}}
+	};
+
+	const std::vector<uint16_t> indices = {
+		0, 1, 2,
+		2, 3, 0
 	};
 
 	static SDL_Window *_window;
@@ -109,6 +115,8 @@ namespace VkDraw {
 	static bool _window_resized = false;
 	static VkBuffer _vertex_buffer;
 	static VkDeviceMemory _vertex_buffer_memory;
+	static VkBuffer _index_buffer;
+	static VkDeviceMemory _index_buffer_memory;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -168,6 +176,7 @@ namespace VkDraw {
 		VkBuffer buffers[] = {_vertex_buffer};
 		VkDeviceSize offsets[] = {0};
 		vkCmdBindVertexBuffers(cmd_buffer, 0, 1, buffers, offsets);
+		vkCmdBindIndexBuffer(cmd_buffer, _index_buffer, 0, VK_INDEX_TYPE_UINT16); // TODO: use uint32_t if needed
 
 		VkViewport viewport{};
 		viewport.x = 0.0f;
@@ -183,7 +192,8 @@ namespace VkDraw {
 		scissor.extent = _swapchain_extent;
 		vkCmdSetScissor(cmd_buffer, 0, 1, &scissor);
 
-		vkCmdDraw(cmd_buffer, vertices.size(), 1, 0, 0);
+		// vkCmdDraw(cmd_buffer, vertices.size(), 1, 0, 0);
+		vkCmdDrawIndexed(cmd_buffer, indices.size(), 1, 0, 0, 0);
 		vkCmdEndRenderPass(cmd_buffer);
 
 		if (vkEndCommandBuffer(cmd_buffer) != VK_SUCCESS) {
@@ -995,7 +1005,7 @@ namespace VkDraw {
 
 		// create vertex buffer
 		{
-			VkDeviceSize size = sizeof(Vertex) * vertices.size();
+			VkDeviceSize size = sizeof(vertices[0]) * vertices.size();
 
 			// create staging buffer
 			VkBuffer staging_buffer;
@@ -1021,6 +1031,40 @@ namespace VkDraw {
 
 			// copy staging buffer to vertex buffer
 			copy_buffer(staging_buffer, _vertex_buffer, size);
+
+			// cleanup staging buffer
+			vkDestroyBuffer(_logical_device, staging_buffer, nullptr);
+			vkFreeMemory(_logical_device, staging_memory, nullptr);
+		}
+
+		// create index buffer
+		{
+			VkDeviceSize size = sizeof(indices[0]) * indices.size();
+
+			// create staging buffer
+			VkBuffer staging_buffer;
+			VkDeviceMemory staging_memory;
+			create_buffer(
+				size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+				staging_buffer, staging_memory
+			);
+
+			// fill staging buffer
+			void *data;
+			vkMapMemory(_logical_device, staging_memory, 0, size, 0, &data);
+			memcpy(data, indices.data(), size);
+			vkUnmapMemory(_logical_device, staging_memory);
+
+			// create index buffer
+			create_buffer(
+				size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				_index_buffer, _index_buffer_memory
+			);
+
+			// copy staging buffer to index buffer
+			copy_buffer(staging_buffer, _index_buffer, size);
 
 			// cleanup staging buffer
 			vkDestroyBuffer(_logical_device, staging_buffer, nullptr);
@@ -1078,6 +1122,8 @@ namespace VkDraw {
 
 		vkDestroyCommandPool(_logical_device, _command_pool, nullptr);
 
+		vkDestroyBuffer(_logical_device, _index_buffer, nullptr);
+		vkFreeMemory(_logical_device, _index_buffer_memory, nullptr);
 		vkDestroyBuffer(_logical_device, _vertex_buffer, nullptr);
 		vkFreeMemory(_logical_device, _vertex_buffer_memory, nullptr);
 
