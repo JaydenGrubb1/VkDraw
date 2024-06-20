@@ -447,6 +447,67 @@ namespace VkDraw {
 		throw std::runtime_error("Failed to find suitable memory type!");
 	}
 
+	static void create_buffer(
+		VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer &buffer,
+		VkDeviceMemory &memory
+	) {
+		VkBufferCreateInfo info{};
+		info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		info.size = size;
+		info.usage = usage;
+		info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		if (vkCreateBuffer(_logical_device, &info, nullptr, &buffer) != VK_SUCCESS) {
+			throw std::runtime_error("Failed to create buffer!");
+		}
+
+		VkMemoryRequirements requirements;
+		vkGetBufferMemoryRequirements(_logical_device, buffer, &requirements);
+
+		VkMemoryAllocateInfo alloc_info{};
+		alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		alloc_info.allocationSize = requirements.size;
+		alloc_info.memoryTypeIndex = find_memory_type(requirements.memoryTypeBits, properties);
+
+		if (vkAllocateMemory(_logical_device, &alloc_info, nullptr, &memory) != VK_SUCCESS) {
+			throw std::runtime_error("Failed to allocate buffer memory!");
+		}
+
+		vkBindBufferMemory(_logical_device, buffer, memory, 0);
+	}
+
+	static void copy_buffer(VkBuffer src, VkBuffer dest, VkDeviceSize size) {
+		VkCommandBufferAllocateInfo alloc{};
+		alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		alloc.commandPool = _command_pool; // TODO: consider using a separate pool
+		alloc.commandBufferCount = 1;
+
+		VkCommandBuffer cmd_buffer;
+		vkAllocateCommandBuffers(_logical_device, &alloc, &cmd_buffer);
+
+		VkCommandBufferBeginInfo begin{};
+		begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vkBeginCommandBuffer(cmd_buffer, &begin);
+
+		VkBufferCopy copy{};
+		copy.size = size;
+		vkCmdCopyBuffer(cmd_buffer, src, dest, 1, &copy);
+
+		vkEndCommandBuffer(cmd_buffer);
+
+		VkSubmitInfo submit{};
+		submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submit.commandBufferCount = 1;
+		submit.pCommandBuffers = &cmd_buffer;
+
+		vkQueueSubmit(_gfx_queue, 1, &submit, VK_NULL_HANDLE);
+		vkQueueWaitIdle(_gfx_queue);
+
+		vkFreeCommandBuffers(_logical_device, _command_pool, 1, &cmd_buffer);
+	}
+
 	int run(std::span<std::string_view> args) {
 		// print all arguments
 		for (auto [idx, arg] : std::views::enumerate(args)) {
@@ -934,44 +995,36 @@ namespace VkDraw {
 
 		// create vertex buffer
 		{
-			VkBufferCreateInfo info{};
-			info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-			info.size = sizeof(Vertex) * vertices.size();
-			info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-			info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			VkDeviceSize size = sizeof(Vertex) * vertices.size();
 
-			if (vkCreateBuffer(_logical_device, &info, nullptr, &_vertex_buffer) != VK_SUCCESS) {
-				throw std::runtime_error("Failed to create vertex buffer!");
-			}
-		}
-
-		// allocate memory for vertex buffer
-		{
-			VkMemoryRequirements requirements{};
-			vkGetBufferMemoryRequirements(_logical_device, _vertex_buffer, &requirements);
-
-			VkMemoryAllocateInfo info{};
-			info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-			info.allocationSize = requirements.size;
-			info.memoryTypeIndex = find_memory_type(
-				requirements.memoryTypeBits,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+			// create staging buffer
+			VkBuffer staging_buffer;
+			VkDeviceMemory staging_memory;
+			create_buffer(
+				size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+				staging_buffer, staging_memory
 			);
 
-			if (vkAllocateMemory(_logical_device, &info, nullptr, &_vertex_buffer_memory) != VK_SUCCESS) {
-				throw std::runtime_error("Failed to allocate vertex buffer memory!");
-			}
-
-			vkBindBufferMemory(_logical_device, _vertex_buffer, _vertex_buffer_memory, 0);
-		}
-
-		// fill vertex buffer
-		{
-			auto amount = sizeof(Vertex) * vertices.size();
+			// fill staging buffer
 			void *data;
-			vkMapMemory(_logical_device, _vertex_buffer_memory, 0, amount, 0, &data);
-			memcpy(data, vertices.data(), amount);
-			vkUnmapMemory(_logical_device, _vertex_buffer_memory);
+			vkMapMemory(_logical_device, staging_memory, 0, size, 0, &data);
+			memcpy(data, vertices.data(), size);
+			vkUnmapMemory(_logical_device, staging_memory);
+
+			// create vertex buffer
+			create_buffer(
+				size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				_vertex_buffer, _vertex_buffer_memory
+			);
+
+			// copy staging buffer to vertex buffer
+			copy_buffer(staging_buffer, _vertex_buffer, size);
+
+			// cleanup staging buffer
+			vkDestroyBuffer(_logical_device, staging_buffer, nullptr);
+			vkFreeMemory(_logical_device, staging_memory, nullptr);
 		}
 
 		SDL_Event event;
