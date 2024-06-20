@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
@@ -13,7 +14,10 @@
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
+
+#define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "app.h"
 
@@ -72,11 +76,17 @@ namespace VkDraw {
 		}
 	};
 
+	struct UniformBufferObject {
+		glm::mat4 model;
+		glm::mat4 view;
+		glm::mat4 proj;
+	};
+
 	const std::vector<Vertex> vertices = {
-		{{-1.0f, -1.0f}, {1.0f, 0.0f, 0.0f}},
-		{{1.0f, -1.0f}, {0.0f, 1.0f, 0.0f}},
-		{{1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}},
-		{{-1.0f, 1.0f}, {1.0f, 1.0f, 0.0f}}
+		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+		{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+		{{-0.5f, 0.5f}, {1.0f, 1.0f, 0.0f}}
 	};
 
 	const std::vector<uint16_t> indices = {
@@ -102,6 +112,7 @@ namespace VkDraw {
 	static VkSwapchainKHR _swapchain;
 	static std::vector<VkImage> _swapchain_images;
 	static std::vector<VkImageView> _swapchain_image_views;
+	static VkDescriptorSetLayout _descriptor_set_layout;
 	static VkPipelineLayout _pipeline_layout;
 	static VkRenderPass _render_pass;
 	static VkPipeline _pipeline;
@@ -117,6 +128,11 @@ namespace VkDraw {
 	static VkDeviceMemory _vertex_buffer_memory;
 	static VkBuffer _index_buffer;
 	static VkDeviceMemory _index_buffer_memory;
+	static std::vector<VkBuffer> _uniform_buffers;
+	static std::vector<VkDeviceMemory> _uniform_buffers_memory;
+	static std::vector<void *> _mapped_uniform_buffers;
+	static VkDescriptorPool _descriptor_pool;
+	static std::vector<VkDescriptorSet> _descriptor_sets;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -177,6 +193,11 @@ namespace VkDraw {
 		VkDeviceSize offsets[] = {0};
 		vkCmdBindVertexBuffers(cmd_buffer, 0, 1, buffers, offsets);
 		vkCmdBindIndexBuffer(cmd_buffer, _index_buffer, 0, VK_INDEX_TYPE_UINT16); // TODO: use uint32_t if needed
+		vkCmdBindDescriptorSets(
+			cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline_layout,
+			0, 1, &_descriptor_sets[_current_frame],
+			0, nullptr
+		);
 
 		VkViewport viewport{};
 		viewport.x = 0.0f;
@@ -192,7 +213,6 @@ namespace VkDraw {
 		scissor.extent = _swapchain_extent;
 		vkCmdSetScissor(cmd_buffer, 0, 1, &scissor);
 
-		// vkCmdDraw(cmd_buffer, vertices.size(), 1, 0, 0);
 		vkCmdDrawIndexed(cmd_buffer, indices.size(), 1, 0, 0, 0);
 		vkCmdEndRenderPass(cmd_buffer);
 
@@ -387,6 +407,33 @@ namespace VkDraw {
 		_window_resized = false;
 	}
 
+	static void update_ubos(uint32_t current) {
+		static auto start_time = std::chrono::high_resolution_clock::now();
+		auto current_time = std::chrono::high_resolution_clock::now();
+		float time = std::chrono::duration<float>(current_time - start_time).count();
+
+		UniformBufferObject ubo{};
+		ubo.model = glm::rotate(
+			glm::mat4(1.0f),
+			time * glm::radians(90.0f),
+			glm::vec3(0.0f, 0.0f, 1.0f)
+		);
+		ubo.view = glm::lookAt(
+			glm::vec3(2.0f, 2.0f, 2.0f),
+			glm::vec3(0.0f, 0.0f, 0.0f),
+			glm::vec3(0.0f, 0.0f, 1.0f)
+		);
+		ubo.proj = glm::perspective(
+			glm::radians(45.0f),
+			static_cast<float>(_swapchain_extent.width) / static_cast<float>(_swapchain_extent.height),
+			0.1f,
+			10.0f
+		);
+		ubo.proj[1][1] *= -1; // flip y coordinate, glm uses OpenGL convention
+
+		memcpy(_mapped_uniform_buffers[current], &ubo, sizeof(ubo));
+	}
+
 	static void draw_frame() {
 		vkWaitForFences(_logical_device, 1, &_in_flight[_current_frame], VK_TRUE, UINT64_MAX);
 
@@ -402,6 +449,7 @@ namespace VkDraw {
 		}
 
 		vkResetFences(_logical_device, 1, &_in_flight[_current_frame]);
+		update_ubos(_current_frame);
 
 		vkResetCommandBuffer(_command_buffer[_current_frame], 0);
 		record_command(_command_buffer[_current_frame], image_idx);
@@ -770,6 +818,25 @@ namespace VkDraw {
 		create_swapchain();
 		create_image_views();
 
+		// create description set layout
+		{
+			VkDescriptorSetLayoutBinding binding{};
+			binding.binding = 0;
+			binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			binding.descriptorCount = 1;
+			binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // TODO: change if needed in other stages
+			binding.pImmutableSamplers = nullptr;
+
+			VkDescriptorSetLayoutCreateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+			info.pBindings = &binding;
+			info.bindingCount = 1;
+
+			if (vkCreateDescriptorSetLayout(_logical_device, &info, nullptr, &_descriptor_set_layout) != VK_SUCCESS) {
+				throw std::runtime_error("Failed to create descriptor set layout!");
+			}
+		}
+
 		// create graphics pipeline
 		{
 			VkGraphicsPipelineCreateInfo pipeline_info{};
@@ -829,7 +896,7 @@ namespace VkDraw {
 			rasterization_stage.polygonMode = VK_POLYGON_MODE_FILL;
 			rasterization_stage.lineWidth = 1.0f;
 			rasterization_stage.cullMode = VK_CULL_MODE_BACK_BIT;
-			rasterization_stage.frontFace = VK_FRONT_FACE_CLOCKWISE;
+			rasterization_stage.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 			rasterization_stage.depthBiasEnable = VK_FALSE;
 			pipeline_info.pRasterizationState = &rasterization_stage;
 
@@ -874,8 +941,8 @@ namespace VkDraw {
 			{
 				VkPipelineLayoutCreateInfo info{};
 				info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-				info.setLayoutCount = 0;
-				info.pSetLayouts = nullptr;
+				info.setLayoutCount = 1;
+				info.pSetLayouts = &_descriptor_set_layout;
 				info.pushConstantRangeCount = 0;
 				info.pPushConstantRanges = nullptr;
 
@@ -1071,6 +1138,76 @@ namespace VkDraw {
 			vkFreeMemory(_logical_device, staging_memory, nullptr);
 		}
 
+		// create uniform buffers
+		{
+			VkDeviceSize size = sizeof(UniformBufferObject);
+
+			_uniform_buffers.resize(MAX_FRAMES_IN_FLIGHT);
+			_uniform_buffers_memory.resize(MAX_FRAMES_IN_FLIGHT);
+			_mapped_uniform_buffers.resize(MAX_FRAMES_IN_FLIGHT);
+
+			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+				create_buffer(
+					size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+					VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+					_uniform_buffers[i], _uniform_buffers_memory[i]
+				);
+				vkMapMemory(_logical_device, _uniform_buffers_memory[i], 0, size, 0, &_mapped_uniform_buffers[i]);
+			}
+		}
+
+		// create descriptor pool
+		{
+			VkDescriptorPoolSize size{};
+			size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+
+			VkDescriptorPoolCreateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+			info.poolSizeCount = 1;
+			info.pPoolSizes = &size;
+			info.maxSets = MAX_FRAMES_IN_FLIGHT;
+			info.flags = 0;
+
+			if (vkCreateDescriptorPool(_logical_device, &info, nullptr, &_descriptor_pool) != VK_SUCCESS) {
+				throw std::runtime_error("Failed to create descriptor pool!");
+			}
+		}
+
+		// create descriptor sets
+		{
+			std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, _descriptor_set_layout);
+
+			VkDescriptorSetAllocateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+			info.descriptorPool = _descriptor_pool;
+			info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+			info.pSetLayouts = layouts.data();
+
+			_descriptor_sets.resize(MAX_FRAMES_IN_FLIGHT);
+			if (vkAllocateDescriptorSets(_logical_device, &info, _descriptor_sets.data()) != VK_SUCCESS) {
+				throw std::runtime_error("Failed to allocate descriptor sets!");
+			}
+
+			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+				VkDescriptorBufferInfo desc{};
+				desc.buffer = _uniform_buffers[i];
+				desc.offset = 0;
+				desc.range = sizeof(UniformBufferObject);
+
+				VkWriteDescriptorSet write{};
+				write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				write.dstSet = _descriptor_sets[i];
+				write.dstBinding = 0;
+				write.dstArrayElement = 0;
+				write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				write.descriptorCount = 1;
+				write.pBufferInfo = &desc;
+
+				vkUpdateDescriptorSets(_logical_device, 1, &write, 0, nullptr);
+			}
+		}
+
 		SDL_Event event;
 		bool running = true;
 
@@ -1120,8 +1257,13 @@ namespace VkDraw {
 			vkDestroySemaphore(_logical_device, _image_available[i], nullptr);
 		}
 
+		vkDestroyDescriptorPool(_logical_device, _descriptor_pool, nullptr);
 		vkDestroyCommandPool(_logical_device, _command_pool, nullptr);
 
+		for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+			vkDestroyBuffer(_logical_device, _uniform_buffers[i], nullptr);
+			vkFreeMemory(_logical_device, _uniform_buffers_memory[i], nullptr);
+		}
 		vkDestroyBuffer(_logical_device, _index_buffer, nullptr);
 		vkFreeMemory(_logical_device, _index_buffer_memory, nullptr);
 		vkDestroyBuffer(_logical_device, _vertex_buffer, nullptr);
@@ -1130,6 +1272,7 @@ namespace VkDraw {
 		vkDestroyPipeline(_logical_device, _pipeline, nullptr);
 		vkDestroyRenderPass(_logical_device, _render_pass, nullptr);
 		vkDestroyPipelineLayout(_logical_device, _pipeline_layout, nullptr);
+		vkDestroyDescriptorSetLayout(_logical_device, _descriptor_set_layout, nullptr);
 
 		cleanup_swapchain();
 
