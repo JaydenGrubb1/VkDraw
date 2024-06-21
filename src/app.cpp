@@ -17,6 +17,7 @@
 #include <SDL_image.h>
 
 #define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -49,7 +50,7 @@ namespace VkDraw {
 	};
 
 	struct Vertex {
-		glm::vec2 pos;
+		glm::vec3 pos;
 		glm::vec3 color;
 		glm::vec2 tex_coord;
 
@@ -66,7 +67,7 @@ namespace VkDraw {
 
 			desc[0].binding = 0;
 			desc[0].location = 0;
-			desc[0].format = VK_FORMAT_R32G32_SFLOAT;
+			desc[0].format = VK_FORMAT_R32G32B32_SFLOAT;
 			desc[0].offset = offsetof(Vertex, pos);
 
 			desc[1].binding = 0;
@@ -90,15 +91,23 @@ namespace VkDraw {
 	};
 
 	const std::vector<Vertex> vertices = {
-		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-		{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-		{{-0.5f, 0.5f}, {1.0f, 1.0f, 0.0f}, {1.0f, 1.0f}}
+		{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+		{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+		{{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+		{{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+
+		{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+		{{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+		{{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+		{{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 0.0f}, {1.0f, 1.0f}}
 	};
 
 	const std::vector<uint16_t> indices = {
 		0, 1, 2,
-		2, 3, 0
+		2, 3, 0,
+
+		4, 5, 6,
+		6, 7, 4
 	};
 
 	static SDL_Window *_window;
@@ -144,6 +153,9 @@ namespace VkDraw {
 	static VkDeviceMemory _texture_image_memory;
 	static VkImageView _texture_image_view;
 	static VkSampler _texture_sampler;
+	static VkImage _depth_image;
+	static VkDeviceMemory _depth_image_memory;
+	static VkImageView _depth_image_view;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -193,9 +205,12 @@ namespace VkDraw {
 		render_info.renderArea.offset = {0, 0};
 		render_info.renderArea.extent = _swapchain_extent;
 
-		VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-		render_info.clearValueCount = 1;
-		render_info.pClearValues = &clear_color;
+		std::array<VkClearValue, 2> clear_colors{};
+		clear_colors[0].color = {0.0f, 0.0f, 0.0f, 1.0f};
+		clear_colors[1].depthStencil = {1.0f, 0};
+
+		render_info.clearValueCount = clear_colors.size();
+		render_info.pClearValues = clear_colors.data();
 
 		vkCmdBeginRenderPass(cmd_buffer, &render_info, VK_SUBPASS_CONTENTS_INLINE);
 		vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline);
@@ -344,6 +359,25 @@ namespace VkDraw {
 		}
 	}
 
+	static VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect) {
+		VkImageViewCreateInfo info{};
+		info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		info.image = image;
+		info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		info.format = format;
+		info.subresourceRange.aspectMask = aspect;
+		info.subresourceRange.baseMipLevel = 0;
+		info.subresourceRange.levelCount = 1;
+		info.subresourceRange.baseArrayLayer = 0;
+		info.subresourceRange.layerCount = 1;
+
+		VkImageView view;
+		if (vkCreateImageView(_logical_device, &info, nullptr, &view) != VK_SUCCESS) {
+			throw std::runtime_error("Failed to create texture image view!");
+		}
+		return view;
+	}
+
 	static void create_image_views() {
 		uint32_t count;
 		vkGetSwapchainImagesKHR(_logical_device, _swapchain, &count, nullptr);
@@ -352,24 +386,9 @@ namespace VkDraw {
 
 		_swapchain_image_views.resize(count);
 		for (uint32_t i = 0; i < count; i++) {
-			VkImageViewCreateInfo info{};
-			info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			info.image = _swapchain_images[i];
-			info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			info.format = _swapchain_format.format;
-			info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-			info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-			info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-			info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-			info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			info.subresourceRange.baseMipLevel = 0;
-			info.subresourceRange.levelCount = 1;
-			info.subresourceRange.baseArrayLayer = 0;
-			info.subresourceRange.layerCount = 1;
-
-			if (vkCreateImageView(_logical_device, &info, nullptr, &_swapchain_image_views[i]) != VK_SUCCESS) {
-				throw std::runtime_error("Failed to create image view!");
-			}
+			_swapchain_image_views[i] = create_image_view(
+				_swapchain_images[i], _swapchain_format.format, VK_IMAGE_ASPECT_COLOR_BIT
+			);
 		}
 	}
 
@@ -377,15 +396,16 @@ namespace VkDraw {
 		_framebuffers.resize(_swapchain_image_views.size());
 
 		for (size_t i = 0; i < _swapchain_image_views.size(); ++i) {
-			VkImageView attachment[] = {
-				_swapchain_image_views[i]
+			std::array attachments = {
+				_swapchain_image_views[i],
+				_depth_image_view
 			};
 
 			VkFramebufferCreateInfo info{};
 			info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 			info.renderPass = _render_pass;
-			info.attachmentCount = 1;
-			info.pAttachments = attachment;
+			info.attachmentCount = attachments.size();
+			info.pAttachments = attachments.data();
 			info.width = _swapchain_extent.width;
 			info.height = _swapchain_extent.height;
 			info.layers = 1;
@@ -397,6 +417,10 @@ namespace VkDraw {
 	}
 
 	static void cleanup_swapchain() {
+		vkDestroyImageView(_logical_device, _depth_image_view, nullptr);
+		vkDestroyImage(_logical_device, _depth_image, nullptr);
+		vkFreeMemory(_logical_device, _depth_image_memory, nullptr);
+
 		for (const auto buffer : _framebuffers) {
 			vkDestroyFramebuffer(_logical_device, buffer, nullptr);
 		}
@@ -406,6 +430,8 @@ namespace VkDraw {
 		vkDestroySwapchainKHR(_logical_device, _swapchain, nullptr);
 	}
 
+	static void create_depth_resources(); // FORWARD DECLARATION
+
 	static void recreate_swapchain() {
 		if (SDL_GetWindowFlags(_window) & SDL_WINDOW_MINIMIZED) {
 			return;
@@ -414,6 +440,7 @@ namespace VkDraw {
 		cleanup_swapchain();
 		create_swapchain();
 		create_image_views();
+		create_depth_resources();
 		create_framebuffers();
 		_window_resized = false;
 	}
@@ -633,13 +660,14 @@ namespace VkDraw {
 		VkPipelineStageFlags src_stage;
 		VkPipelineStageFlags dst_stage;
 
-		if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+		if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
+			new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
 			barrier.srcAccessMask = 0;
 			barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 			src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 			dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		} else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout ==
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+		} else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+			new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
 			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 			src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
@@ -688,6 +716,38 @@ namespace VkDraw {
 		vkCmdCopyBuffer(cmd, src, dest, 1, &copy);
 
 		end_single_use_command(cmd);
+	}
+
+	static VkFormat find_supported_format(
+		const std::vector<VkFormat> &candidates, VkImageTiling tiling, VkFormatFeatureFlags features
+	) {
+		for (const auto format : candidates) {
+			VkFormatProperties props;
+			vkGetPhysicalDeviceFormatProperties(_physical_device, format, &props);
+
+			if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features) {
+				return format;
+			}
+			if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features) {
+				return format;
+			}
+		}
+
+		throw std::runtime_error("Failed to find supported format!");
+	}
+
+	static void create_depth_resources() {
+		VkFormat format = find_supported_format(
+			{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+			VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+		);
+		create_image(
+			_swapchain_extent.width, _swapchain_extent.height, format, VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			_depth_image, _depth_image_memory
+		);
+		_depth_image_view = create_image_view(_depth_image, format, VK_IMAGE_ASPECT_DEPTH_BIT);
+		// TODO: cleanup
 	}
 
 	int run(std::span<std::string_view> args) {
@@ -1045,7 +1105,19 @@ namespace VkDraw {
 			pipeline_info.pMultisampleState = &multisampling_state;
 
 			// depth and stencil
-			pipeline_info.pDepthStencilState = nullptr;
+			VkPipelineDepthStencilStateCreateInfo depth_stencil{};
+			depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+			depth_stencil.depthTestEnable = VK_TRUE;
+			depth_stencil.depthWriteEnable = VK_TRUE;
+			depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
+			depth_stencil.depthBoundsTestEnable = VK_FALSE;
+			// depth_stencil.minDepthBounds = 0.0f;
+			// depth_stencil.maxDepthBounds = 1.0f;
+			depth_stencil.stencilTestEnable = VK_FALSE;
+			// depth_stencil.front = {};
+			// depth_stencil.back = {};
+
+			pipeline_info.pDepthStencilState = &depth_stencil;
 
 			// color blending
 			VkPipelineColorBlendAttachmentState blend_attachment{};
@@ -1092,37 +1164,60 @@ namespace VkDraw {
 
 			// create render pass
 			{
-				VkAttachmentDescription attachment{};
-				attachment.format = _swapchain_format.format;
-				attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-				attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-				attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-				attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-				attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-				attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+				VkAttachmentDescription color_attach{};
+				color_attach.format = _swapchain_format.format;
+				color_attach.samples = VK_SAMPLE_COUNT_1_BIT;
+				color_attach.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+				color_attach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+				color_attach.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+				color_attach.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+				color_attach.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				color_attach.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-				VkAttachmentReference reference{};
-				reference.attachment = 0;
-				reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				VkAttachmentDescription depth_attach{};
+				depth_attach.format = find_supported_format(
+					{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+					VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+				); // TODO: call this function once earlier
+				depth_attach.samples = VK_SAMPLE_COUNT_1_BIT;
+				depth_attach.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+				depth_attach.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // TODO: change if needed
+				depth_attach.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+				depth_attach.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+				depth_attach.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				depth_attach.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+				std::array attachments = {color_attach, depth_attach};
+
+				VkAttachmentReference color_ref{};
+				color_ref.attachment = 0;
+				color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+				VkAttachmentReference depth_ref{};
+				depth_ref.attachment = 1;
+				depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 				VkSubpassDescription subpass{};
 				subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 				subpass.colorAttachmentCount = 1;
-				subpass.pColorAttachments = &reference;
+				subpass.pColorAttachments = &color_ref;
+				subpass.pDepthStencilAttachment = &depth_ref;
 
 				VkSubpassDependency dependency{};
 				dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 				dependency.dstSubpass = 0;
-				dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+				dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+					VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
 				dependency.srcAccessMask = 0;
-				dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-				dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+				dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+					VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+				dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+					VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
 				VkRenderPassCreateInfo info{};
 				info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-				info.attachmentCount = 1;
-				info.pAttachments = &attachment;
+				info.attachmentCount = attachments.size();
+				info.pAttachments = attachments.data();
 				info.subpassCount = 1;
 				info.pSubpasses = &subpass;
 				info.dependencyCount = 1;
@@ -1150,6 +1245,7 @@ namespace VkDraw {
 			vkDestroyShaderModule(_logical_device, frag_shader, nullptr);
 		}
 
+		create_depth_resources();
 		create_framebuffers();
 
 		// create command pools
@@ -1341,20 +1437,7 @@ namespace VkDraw {
 
 		// create texture image view
 		{
-			VkImageViewCreateInfo info{};
-			info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			info.image = _texture_image;
-			info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			info.format = VK_FORMAT_R8G8B8A8_SRGB; // TODO: support other formats
-			info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			info.subresourceRange.baseMipLevel = 0;
-			info.subresourceRange.levelCount = 1;
-			info.subresourceRange.baseArrayLayer = 0;
-			info.subresourceRange.layerCount = 1;
-
-			if (vkCreateImageView(_logical_device, &info, nullptr, &_texture_image_view) != VK_SUCCESS) {
-				throw std::runtime_error("Failed to create texture image view!");
-			}
+			_texture_image_view = create_image_view(_texture_image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
 		}
 
 		// create texture sampler
