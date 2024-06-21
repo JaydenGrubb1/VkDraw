@@ -135,6 +135,8 @@ namespace VkDraw {
 	static std::vector<VkDescriptorSet> _descriptor_sets;
 	static VkImage _texture_image;
 	static VkDeviceMemory _texture_image_memory;
+	static VkImageView _texture_image_view;
+	static VkSampler _texture_sampler;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -809,11 +811,14 @@ namespace VkDraw {
 			for (const auto &device : devices) {
 				VkPhysicalDeviceProperties properties;
 				vkGetPhysicalDeviceProperties(device, &properties);
+				VkPhysicalDeviceFeatures features;
+				vkGetPhysicalDeviceFeatures(device, &features);
 
 				std::printf("\t%s\n", properties.deviceName);
 
 				bool dedicated = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 				bool supports_extensions = true;
+				bool supports_features = features.samplerAnisotropy; // TODO: add more features
 
 				// check if device supports required extensions
 				{
@@ -840,7 +845,7 @@ namespace VkDraw {
 				// TODO: also check queue family support
 				// TODO: also check swapchain support
 				// TODO: "rank" devices by non-essential features
-				if (dedicated && supports_extensions) {
+				if (dedicated && supports_extensions && supports_features) {
 					_physical_device = device;
 				}
 			}
@@ -901,6 +906,7 @@ namespace VkDraw {
 			}
 
 			VkPhysicalDeviceFeatures features{};
+			features.samplerAnisotropy = VK_TRUE;
 			// TODO: add features
 
 			VkDeviceCreateInfo info{};
@@ -1317,6 +1323,52 @@ namespace VkDraw {
 			SDL_FreeSurface(img);
 		}
 
+		// create texture image view
+		{
+			VkImageViewCreateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			info.image = _texture_image;
+			info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			info.format = VK_FORMAT_R8G8B8A8_SRGB; // TODO: support other formats
+			info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			info.subresourceRange.baseMipLevel = 0;
+			info.subresourceRange.levelCount = 1;
+			info.subresourceRange.baseArrayLayer = 0;
+			info.subresourceRange.layerCount = 1;
+
+			if (vkCreateImageView(_logical_device, &info, nullptr, &_texture_image_view) != VK_SUCCESS) {
+				throw std::runtime_error("Failed to create texture image view!");
+			}
+		}
+
+		// create texture sampler
+		{
+			VkPhysicalDeviceProperties props;
+			vkGetPhysicalDeviceProperties(_physical_device, &props); // TODO: cache the properties from earlier
+
+			VkSamplerCreateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+			info.magFilter = VK_FILTER_LINEAR;
+			info.minFilter = VK_FILTER_LINEAR;
+			info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+			info.anisotropyEnable = VK_TRUE;
+			info.maxAnisotropy = props.limits.maxSamplerAnisotropy; // TODO: provide options to user
+			info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+			info.unnormalizedCoordinates = VK_FALSE;
+			info.compareEnable = VK_FALSE;
+			info.compareOp = VK_COMPARE_OP_ALWAYS;
+			info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+			info.mipLodBias = 0.0f;
+			info.minLod = 0.0f;
+			info.maxLod = 0.0f;
+
+			if (vkCreateSampler(_logical_device, &info, nullptr, &_texture_sampler) != VK_SUCCESS) {
+				throw std::runtime_error("Failed to create texture sampler!");
+			}
+		}
+
 		// create descriptor pool
 		{
 			VkDescriptorPoolSize size{};
@@ -1421,6 +1473,8 @@ namespace VkDraw {
 		vkDestroyDescriptorPool(_logical_device, _descriptor_pool, nullptr);
 		vkDestroyCommandPool(_logical_device, _command_pool, nullptr);
 
+		vkDestroySampler(_logical_device, _texture_sampler, nullptr);
+		vkDestroyImageView(_logical_device, _texture_image_view, nullptr);
 		vkDestroyImage(_logical_device, _texture_image, nullptr);
 		vkFreeMemory(_logical_device, _texture_image_memory, nullptr);
 		for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
