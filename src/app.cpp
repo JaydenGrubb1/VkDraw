@@ -133,6 +133,8 @@ namespace VkDraw {
 	static std::vector<void *> _mapped_uniform_buffers;
 	static VkDescriptorPool _descriptor_pool;
 	static std::vector<VkDescriptorSet> _descriptor_sets;
+	static VkImage _texture_image;
+	static VkDeviceMemory _texture_image_memory;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -534,36 +536,149 @@ namespace VkDraw {
 		vkBindBufferMemory(_logical_device, buffer, memory, 0);
 	}
 
-	static void copy_buffer(VkBuffer src, VkBuffer dest, VkDeviceSize size) {
+	static void create_image(
+		uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+		VkMemoryPropertyFlags properties, VkImage &image, VkDeviceMemory &memory
+	) {
+		VkImageCreateInfo info{};
+		info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		info.imageType = VK_IMAGE_TYPE_2D;
+		info.extent.width = width;
+		info.extent.height = height;
+		info.extent.depth = 1;
+		info.mipLevels = 1;
+		info.arrayLayers = 1;
+		info.format = format;
+		info.tiling = tiling;
+		info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		info.usage = usage;
+		info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		info.samples = VK_SAMPLE_COUNT_1_BIT;
+
+		if (vkCreateImage(_logical_device, &info, nullptr, &image) != VK_SUCCESS) {
+			throw std::runtime_error("Failed to create image!");
+		}
+
+		VkMemoryRequirements requirements;
+		vkGetImageMemoryRequirements(_logical_device, image, &requirements);
+
+		VkMemoryAllocateInfo alloc_info{};
+		alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		alloc_info.allocationSize = requirements.size;
+		alloc_info.memoryTypeIndex = find_memory_type(requirements.memoryTypeBits, properties);
+
+		if (vkAllocateMemory(_logical_device, &alloc_info, nullptr, &memory) != VK_SUCCESS) {
+			throw std::runtime_error("Failed to allocate image memory!");
+		}
+
+		vkBindImageMemory(_logical_device, image, memory, 0);
+	}
+
+	static VkCommandBuffer begin_single_use_command() {
 		VkCommandBufferAllocateInfo alloc{};
 		alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 		alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 		alloc.commandPool = _command_pool; // TODO: consider using a separate pool
 		alloc.commandBufferCount = 1;
 
-		VkCommandBuffer cmd_buffer;
-		vkAllocateCommandBuffers(_logical_device, &alloc, &cmd_buffer);
+		VkCommandBuffer buffer;
+		vkAllocateCommandBuffers(_logical_device, &alloc, &buffer);
 
 		VkCommandBufferBeginInfo begin{};
 		begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 		begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		vkBeginCommandBuffer(cmd_buffer, &begin);
+		vkBeginCommandBuffer(buffer, &begin);
+		return buffer;
+	}
 
-		VkBufferCopy copy{};
-		copy.size = size;
-		vkCmdCopyBuffer(cmd_buffer, src, dest, 1, &copy);
-
-		vkEndCommandBuffer(cmd_buffer);
+	static void end_single_use_command(VkCommandBuffer buffer) {
+		vkEndCommandBuffer(buffer);
 
 		VkSubmitInfo submit{};
 		submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submit.commandBufferCount = 1;
-		submit.pCommandBuffers = &cmd_buffer;
+		submit.pCommandBuffers = &buffer;
 
 		vkQueueSubmit(_gfx_queue, 1, &submit, VK_NULL_HANDLE);
 		vkQueueWaitIdle(_gfx_queue);
 
-		vkFreeCommandBuffers(_logical_device, _command_pool, 1, &cmd_buffer);
+		vkFreeCommandBuffers(_logical_device, _command_pool, 1, &buffer);
+	}
+
+	static void transition_image_layout(VkImage image, VkImageLayout old_layout, VkImageLayout new_layout) {
+		VkCommandBuffer cmd = begin_single_use_command();
+
+		VkImageMemoryBarrier barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		barrier.oldLayout = old_layout;
+		barrier.newLayout = new_layout;
+		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		barrier.image = image;
+		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		barrier.subresourceRange.baseMipLevel = 0;
+		barrier.subresourceRange.levelCount = 1;
+		barrier.subresourceRange.baseArrayLayer = 0;
+		barrier.subresourceRange.layerCount = 1;
+
+		VkPipelineStageFlags src_stage;
+		VkPipelineStageFlags dst_stage;
+
+		if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+			barrier.srcAccessMask = 0;
+			barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		} else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout ==
+			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		} else {
+			throw std::runtime_error("Unsupported layout transition!");
+		}
+
+		vkCmdPipelineBarrier(
+			cmd, src_stage, dst_stage,
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, &barrier
+		);
+
+		end_single_use_command(cmd);
+	}
+
+	static void copy_buffer_to_image(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height) {
+		VkCommandBuffer cmd = begin_single_use_command();
+
+		VkBufferImageCopy region{};
+		region.bufferOffset = 0;
+		region.bufferRowLength = 0;
+		region.bufferImageHeight = 0;
+		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0;
+		region.imageSubresource.baseArrayLayer = 0;
+		region.imageSubresource.layerCount = 1;
+		region.imageOffset = {0, 0, 0};
+		region.imageExtent = {width, height, 1};
+
+		vkCmdCopyBufferToImage(
+			cmd, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
+		);
+
+		end_single_use_command(cmd);
+	}
+
+	static void copy_buffer(VkBuffer src, VkBuffer dest, VkDeviceSize size) {
+		VkCommandBuffer cmd = begin_single_use_command();
+
+		VkBufferCopy copy{};
+		copy.size = size;
+		vkCmdCopyBuffer(cmd, src, dest, 1, &copy);
+
+		end_single_use_command(cmd);
 	}
 
 	int run(std::span<std::string_view> args) {
@@ -1156,6 +1271,52 @@ namespace VkDraw {
 			}
 		}
 
+		// load texture data
+		{
+			SDL_Surface *img = SDL_LoadBMP("textures/texture.bmp");
+			if (!img) {
+				throw std::runtime_error("Failed to load texture image!");
+			}
+			if (img->format->BytesPerPixel != 4) {
+				// TODO: support other formats
+				throw std::runtime_error("Texture image must have 4 bytes per pixel!");
+			}
+			VkDeviceSize size = img->w * img->h * img->format->BytesPerPixel;
+
+			VkBuffer staging_buffer;
+			VkDeviceMemory staging_memory;
+			create_buffer(
+				size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+				staging_buffer, staging_memory
+			);
+
+			void *data;
+			vkMapMemory(_logical_device, staging_memory, 0, size, 0, &data);
+			memcpy(data, img->pixels, size);
+			vkUnmapMemory(_logical_device, staging_memory);
+
+			create_image(
+				img->w, img->h, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+				VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _texture_image, _texture_image_memory
+			);
+
+			transition_image_layout(
+				_texture_image, VK_IMAGE_LAYOUT_UNDEFINED,
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+			);
+			copy_buffer_to_image(staging_buffer, _texture_image, img->w, img->h);
+			transition_image_layout(
+				_texture_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+			);
+
+			vkDestroyBuffer(_logical_device, staging_buffer, nullptr);
+			vkFreeMemory(_logical_device, staging_memory, nullptr);
+			SDL_FreeSurface(img);
+		}
+
 		// create descriptor pool
 		{
 			VkDescriptorPoolSize size{};
@@ -1260,6 +1421,8 @@ namespace VkDraw {
 		vkDestroyDescriptorPool(_logical_device, _descriptor_pool, nullptr);
 		vkDestroyCommandPool(_logical_device, _command_pool, nullptr);
 
+		vkDestroyImage(_logical_device, _texture_image, nullptr);
+		vkFreeMemory(_logical_device, _texture_image_memory, nullptr);
 		for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
 			vkDestroyBuffer(_logical_device, _uniform_buffers[i], nullptr);
 			vkFreeMemory(_logical_device, _uniform_buffers_memory[i], nullptr);
