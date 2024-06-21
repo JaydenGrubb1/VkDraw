@@ -10,7 +10,7 @@ add_compile_options(
 	-Wall
 	-Wextra
 	-Wpedantic
-#	-Wold-style-cast
+	#-Wold-style-cast
 )
 
 add_executable(
@@ -26,18 +26,21 @@ set(
 )
 
 find_package(SDL2 REQUIRED)
+find_package(SDL2_image REQUIRED)
 find_package(Vulkan REQUIRED)
 
 include_directories(
 	${CMAKE_CURRENT_SOURCE_DIR}/include
 	${SDL2_INCLUDE_DIRS}
+	${SDL2_IMAGE_INCLUDE_DIRS}
 	${Vulkan_INCLUDE_DIRS}
 )
 
 target_link_libraries(
 	${PROJECT_NAME}
-	${SDL2_LIBRARIES}
-	${Vulkan_LIBRARIES}
+	SDL2::SDL2
+	SDL2_image::SDL2_image
+	Vulkan::Vulkan
 )
 
 find_program(GLSLC glslc REQUIRED HINTS Vulkan::glslc)

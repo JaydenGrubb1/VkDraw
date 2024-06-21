@@ -14,6 +14,7 @@
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
+#include <SDL_image.h>
 
 #define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
@@ -1294,7 +1295,7 @@ namespace VkDraw {
 
 		// load texture data
 		{
-			SDL_Surface *img = SDL_LoadBMP("textures/texture.bmp");
+			SDL_Surface *img = IMG_Load("textures/texture.png");
 			if (!img) {
 				throw std::runtime_error("Failed to load texture image!");
 			}
