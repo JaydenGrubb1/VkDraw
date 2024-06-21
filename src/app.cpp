@@ -18,6 +18,7 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_FORCE_LEFT_HANDED
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -90,25 +91,78 @@ namespace VkDraw {
 		glm::mat4 proj;
 	};
 
-	const std::vector<Vertex> vertices = {
-		{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-		{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-		{{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-		{{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 0.0f}, {1.0f, 1.0f}},
+	glm::vec3 red = {1.0f, 0.0f, 0.0f};
+	glm::vec3 green = {0.0f, 1.0f, 0.0f};
+	glm::vec3 blue = {0.0f, 0.0f, 1.0f};
+	glm::vec3 yellow = {1.0f, 1.0f, 0.0f};
+	glm::vec3 cyan = {0.0f, 1.0f, 1.0f};
+	glm::vec3 magenta = {1.0f, 0.0f, 1.0f};
 
-		{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-		{{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-		{{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-		{{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 0.0f}, {1.0f, 1.0f}}
+	// cube vertices
+	const std::vector<Vertex> vertices = {
+		// top face
+		{{-0.5f, -0.5f, 0.5f}, red, {0.0f, 0.0f}},
+		{{0.5f, -0.5f, 0.5f}, red, {0.25f, 0.0f}},
+		{{0.5f, 0.5f, 0.5f}, red, {0.25f, 0.25f}},
+		{{-0.5f, 0.5f, 0.5f}, red, {0.0f, 0.25f}},
+
+		// bottom face
+		{{-0.5f, -0.5f, -0.5f}, green, {0.0f, 0.25f}},
+		{{0.5f, -0.5f, -0.5f}, green, {0.25f, 0.25f}},
+		{{0.5f, 0.5f, -0.5f}, green, {0.25f, 0.5f}},
+		{{-0.5f, 0.5f, -0.5f}, green, {0.0f, 0.5f}},
+
+		// left face
+		{{-0.5f, -0.5f, -0.5f}, blue, {0.25f, 0.0f}},
+		{{-0.5f, -0.5f, 0.5f}, blue, {0.5f, 0.0f}},
+		{{-0.5f, 0.5f, 0.5f}, blue, {0.5f, 0.25f}},
+		{{-0.5f, 0.5f, -0.5f}, blue, {0.25f, 0.25f}},
+
+		// right face
+		{{0.5f, -0.5f, -0.5f}, yellow, {0.5f, 0.0f}},
+		{{0.5f, -0.5f, 0.5f}, yellow, {0.75f, 0.0f}},
+		{{0.5f, 0.5f, 0.5f}, yellow, {0.75f, 0.25f}},
+		{{0.5f, 0.5f, -0.5f}, yellow, {0.5f, 0.25f}},
+
+		// front face
+		{{-0.5f, -0.5f, -0.5f}, cyan, {0.75f, 0.0f}},
+		{{0.5f, -0.5f, -0.5f}, cyan, {1.0f, 0.0f}},
+		{{0.5f, -0.5f, 0.5f}, cyan, {1.0f, 0.25f}},
+		{{-0.5f, -0.5f, 0.5f}, cyan, {0.75f, 0.25f}},
+
+		// back face
+		{{-0.5f, 0.5f, -0.5f}, magenta, {0.25f, 0.25f}},
+		{{0.5f, 0.5f, -0.5f}, magenta, {0.5f, 0.25f}},
+		{{0.5f, 0.5f, 0.5f}, magenta, {0.5f, 0.5f}},
+		{{-0.5f, 0.5f, 0.5f}, magenta, {0.25f, 0.5f}}
 	};
 
 	const std::vector<uint16_t> indices = {
+		// top face
 		0, 1, 2,
 		2, 3, 0,
 
-		4, 5, 6,
-		6, 7, 4
+		// bottom face
+		6, 5, 4,
+		4, 7, 6,
+
+		// left face
+		8, 9, 10,
+		10, 11, 8,
+
+		// right face
+		14, 13, 12,
+		12, 15, 14,
+
+		// front face
+		16, 17, 18,
+		18, 19, 16,
+
+		// back face
+		22, 21, 20,
+		20, 23, 22
 	};
+
 
 	static SDL_Window *_window;
 	static VkApplicationInfo _app_info{};
@@ -454,12 +508,12 @@ namespace VkDraw {
 		ubo.model = glm::rotate(
 			glm::mat4(1.0f),
 			time * glm::radians(90.0f),
-			glm::vec3(0.0f, 0.0f, 1.0f)
+			glm::vec3(1.0f, 1.0f, 1.0f)
 		);
 		ubo.view = glm::lookAt(
-			glm::vec3(2.0f, 2.0f, 2.0f),
+			glm::vec3(0.0f, -1.0f, 3.0f),
 			glm::vec3(0.0f, 0.0f, 0.0f),
-			glm::vec3(0.0f, 0.0f, 1.0f)
+			glm::vec3(0.0f, 1.0f, 0.0f)
 		);
 		ubo.proj = glm::perspective(
 			glm::radians(45.0f),
@@ -467,7 +521,6 @@ namespace VkDraw {
 			0.1f,
 			10.0f
 		);
-		ubo.proj[1][1] *= -1; // flip y coordinate, glm uses OpenGL convention
 
 		memcpy(_mapped_uniform_buffers[current], &ubo, sizeof(ubo));
 	}
@@ -1391,7 +1444,7 @@ namespace VkDraw {
 
 		// load texture data
 		{
-			SDL_Surface *img = IMG_Load("textures/texture.png");
+			SDL_Surface *img = IMG_Load("textures/art.png");
 			if (!img) {
 				throw std::runtime_error("Failed to load texture image!");
 			}
