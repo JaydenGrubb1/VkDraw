@@ -17,10 +17,14 @@
 #include <SDL_image.h>
 
 #define GLM_FORCE_RADIANS
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "app.h"
+#include "imgui.h"
+#include "imgui_impl_sdl2.h"
+#include "imgui_impl_vulkan.h"
 
 static constexpr auto WIDTH = 1280;
 static constexpr auto HEIGHT = 720;
@@ -91,9 +95,9 @@ namespace VkDraw {
 
 	const std::vector<Vertex> vertices = {
 		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-		{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-		{{-0.5f, 0.5f}, {1.0f, 1.0f, 0.0f}, {1.0f, 1.0f}}
+		{{0.5f,  -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+		{{0.5f,  0.5f},  {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+		{{-0.5f, 0.5f},  {1.0f, 1.0f, 0.0f}, {1.0f, 1.0f}}
 	};
 
 	const std::vector<uint16_t> indices = {
@@ -144,6 +148,7 @@ namespace VkDraw {
 	static VkDeviceMemory _texture_image_memory;
 	static VkImageView _texture_image_view;
 	static VkSampler _texture_sampler;
+	static VkDescriptorPool _imgui_pool;
 
 #ifdef NDEBUG
 	static bool _use_validation = false;
@@ -225,6 +230,9 @@ namespace VkDraw {
 		vkCmdSetScissor(cmd_buffer, 0, 1, &scissor);
 
 		vkCmdDrawIndexed(cmd_buffer, indices.size(), 1, 0, 0, 0);
+
+		ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd_buffer);
+
 		vkCmdEndRenderPass(cmd_buffer);
 
 		if (vkEndCommandBuffer(cmd_buffer) != VK_SUCCESS) {
@@ -418,6 +426,11 @@ namespace VkDraw {
 		_window_resized = false;
 	}
 
+	static glm::vec3 eye = {0.0f, 0.0f, 2.0f};
+	static glm::vec3 center = {0.0f, 0.0f, 1.0f};
+	static glm::vec3 up = {0.0f, -1.0f, 0.0f};
+	static float fov = 45.0f;
+
 	static void update_ubos(uint32_t current) {
 		static auto start_time = std::chrono::high_resolution_clock::now();
 		auto current_time = std::chrono::high_resolution_clock::now();
@@ -429,13 +442,15 @@ namespace VkDraw {
 			time * glm::radians(90.0f),
 			glm::vec3(0.0f, 0.0f, 1.0f)
 		);
+//		ubo.model = glm::mat4(1.0f);
+
 		ubo.view = glm::lookAt(
-			glm::vec3(2.0f, 2.0f, 2.0f),
-			glm::vec3(0.0f, 0.0f, 0.0f),
-			glm::vec3(0.0f, 0.0f, 1.0f)
+			eye,
+			center,
+			up
 		);
 		ubo.proj = glm::perspective(
-			glm::radians(45.0f),
+			glm::radians(fov),
 			static_cast<float>(_swapchain_extent.width) / static_cast<float>(_swapchain_extent.height),
 			0.1f,
 			10.0f
@@ -450,7 +465,7 @@ namespace VkDraw {
 
 		uint32_t image_idx;
 		auto res = vkAcquireNextImageKHR(
-			_logical_device, _swapchain, UINT64_MAX, _image_available[_current_frame],VK_NULL_HANDLE, &image_idx
+			_logical_device, _swapchain, UINT64_MAX, _image_available[_current_frame], VK_NULL_HANDLE, &image_idx
 		);
 		if (res == VK_ERROR_OUT_OF_DATE_KHR) {
 			recreate_swapchain();
@@ -639,7 +654,7 @@ namespace VkDraw {
 			src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 			dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 		} else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && new_layout ==
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+																		 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
 			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 			src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
@@ -702,9 +717,9 @@ namespace VkDraw {
 		}
 
 		if (_window = SDL_CreateWindow(
-			"VkDraw", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT,
-			SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
-		); _window == nullptr) {
+				"VkDraw", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT,
+				SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
+			); _window == nullptr) {
 			throw std::runtime_error("Failed to create SDL Window!");
 		}
 
@@ -823,7 +838,7 @@ namespace VkDraw {
 
 				std::printf("\t%s\n", properties.deviceName);
 
-				bool dedicated = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+				bool dedicated = true;//properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 				bool supports_extensions = true;
 				bool supports_features = features.samplerAnisotropy; // TODO: add more features
 
@@ -1457,6 +1472,56 @@ namespace VkDraw {
 			}
 		}
 
+		// initialize imgui
+		{
+			VkDescriptorPoolSize pool_sizes[] = {
+				{VK_DESCRIPTOR_TYPE_SAMPLER,                1000},
+				{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000},
+				{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,          1000},
+				{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,          1000},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,   1000},
+				{VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,   1000},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         1000},
+				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         1000},
+				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
+				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
+				{VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,       1000}
+			};
+
+			VkDescriptorPoolCreateInfo info{};
+			info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+			info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+			info.maxSets = 1000;
+			info.poolSizeCount = std::size(pool_sizes);
+			info.pPoolSizes = pool_sizes;
+
+			if (vkCreateDescriptorPool(_logical_device, &info, nullptr, &_imgui_pool) != VK_SUCCESS) {
+				throw std::runtime_error("Failed to create imgui descriptor pool!");
+			}
+
+			ImGui::CreateContext();
+			ImGui_ImplSDL2_InitForVulkan(_window);
+
+			ImGui_ImplVulkan_InitInfo init{};
+			init.Instance = _instance;
+			init.PhysicalDevice = _physical_device;
+			init.Device = _logical_device;
+			init.Queue = _gfx_queue;
+			init.DescriptorPool = _imgui_pool;
+			init.MinImageCount = 2;
+			init.ImageCount = _swapchain_images.size();
+			init.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+			init.RenderPass = _render_pass;
+
+			ImGui_ImplVulkan_Init(&init);
+			auto cmd = begin_single_use_command();
+			ImGui_ImplVulkan_CreateFontsTexture();
+			end_single_use_command(cmd);
+
+			// TODO: Destroy descriptor pool
+			// TODO: ImGui cleanup
+		}
+
 		SDL_Event event;
 		bool running = true;
 
@@ -1482,6 +1547,8 @@ namespace VkDraw {
 			}
 
 			while (SDL_PollEvent(&event)) {
+				ImGui_ImplSDL2_ProcessEvent(&event);
+
 				switch (event.type) {
 					case SDL_QUIT:
 						running = false;
@@ -1495,10 +1562,26 @@ namespace VkDraw {
 				}
 			}
 
+			ImGui_ImplVulkan_NewFrame();
+			ImGui_ImplSDL2_NewFrame();
+			ImGui::NewFrame();
+
+			ImGui::InputFloat3("Camera Position", reinterpret_cast<float *>(&eye));
+			ImGui::InputFloat3("Camera Target", reinterpret_cast<float *>(&center));
+			ImGui::InputFloat3("Camera Up", reinterpret_cast<float *>(&up));
+			ImGui::InputFloat("Camera FOV", &fov);
+
+			ImGui::Render();
 			draw_frame();
 		}
 
 		vkDeviceWaitIdle(_logical_device);
+
+		// cleanup ImGui
+		{
+			ImGui_ImplVulkan_Shutdown();
+			vkDestroyDescriptorPool(_logical_device, _imgui_pool, nullptr);
+		}
 
 		for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 			vkDestroyFence(_logical_device, _in_flight[i], nullptr);
