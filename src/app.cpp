@@ -50,6 +50,7 @@ namespace VkDraw {
 	struct Vertex {
 		glm::vec2 pos;
 		glm::vec3 color;
+		glm::vec2 tex_coord;
 
 		static VkVertexInputBindingDescription get_binding() {
 			VkVertexInputBindingDescription desc{};
@@ -59,8 +60,8 @@ namespace VkDraw {
 			return desc;
 		}
 
-		static std::array<VkVertexInputAttributeDescription, 2> get_attribute() {
-			std::array<VkVertexInputAttributeDescription, 2> desc{};
+		static std::array<VkVertexInputAttributeDescription, 3> get_attribute() {
+			std::array<VkVertexInputAttributeDescription, 3> desc{};
 
 			desc[0].binding = 0;
 			desc[0].location = 0;
@@ -71,6 +72,11 @@ namespace VkDraw {
 			desc[1].location = 1;
 			desc[1].format = VK_FORMAT_R32G32B32_SFLOAT;
 			desc[1].offset = offsetof(Vertex, color);
+
+			desc[2].binding = 0;
+			desc[2].location = 2;
+			desc[2].format = VK_FORMAT_R32G32_SFLOAT;
+			desc[2].offset = offsetof(Vertex, tex_coord);
 
 			return desc;
 		}
@@ -83,10 +89,10 @@ namespace VkDraw {
 	};
 
 	const std::vector<Vertex> vertices = {
-		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-		{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-		{{-0.5f, 0.5f}, {1.0f, 1.0f, 0.0f}}
+		{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+		{{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+		{{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+		{{-0.5f, 0.5f}, {1.0f, 1.0f, 0.0f}, {1.0f, 1.0f}}
 	};
 
 	const std::vector<uint16_t> indices = {
@@ -941,17 +947,26 @@ namespace VkDraw {
 
 		// create description set layout
 		{
-			VkDescriptorSetLayoutBinding binding{};
-			binding.binding = 0;
-			binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-			binding.descriptorCount = 1;
-			binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // TODO: change if needed in other stages
-			binding.pImmutableSamplers = nullptr;
+			VkDescriptorSetLayoutBinding ubos{};
+			ubos.binding = 0;
+			ubos.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			ubos.descriptorCount = 1;
+			ubos.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // TODO: change if needed in other stages
+			ubos.pImmutableSamplers = nullptr;
+
+			VkDescriptorSetLayoutBinding sampler{};
+			sampler.binding = 1;
+			sampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			sampler.descriptorCount = 1;
+			sampler.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+			sampler.pImmutableSamplers = nullptr;
+
+			std::array bindings = {ubos, sampler};
 
 			VkDescriptorSetLayoutCreateInfo info{};
 			info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-			info.pBindings = &binding;
-			info.bindingCount = 1;
+			info.pBindings = bindings.data();
+			info.bindingCount = bindings.size();
 
 			if (vkCreateDescriptorSetLayout(_logical_device, &info, nullptr, &_descriptor_set_layout) != VK_SUCCESS) {
 				throw std::runtime_error("Failed to create descriptor set layout!");
@@ -1371,14 +1386,20 @@ namespace VkDraw {
 
 		// create descriptor pool
 		{
-			VkDescriptorPoolSize size{};
-			size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-			size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+			VkDescriptorPoolSize ubo_size{};
+			ubo_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			ubo_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+
+			VkDescriptorPoolSize sampler_size{};
+			sampler_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			sampler_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+
+			std::array sizes = {ubo_size, sampler_size};
 
 			VkDescriptorPoolCreateInfo info{};
 			info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-			info.poolSizeCount = 1;
-			info.pPoolSizes = &size;
+			info.poolSizeCount = sizes.size();
+			info.pPoolSizes = sizes.data();
 			info.maxSets = MAX_FRAMES_IN_FLIGHT;
 			info.flags = 0;
 
@@ -1403,21 +1424,35 @@ namespace VkDraw {
 			}
 
 			for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-				VkDescriptorBufferInfo desc{};
-				desc.buffer = _uniform_buffers[i];
-				desc.offset = 0;
-				desc.range = sizeof(UniformBufferObject);
+				VkDescriptorBufferInfo ubo_buffer{};
+				ubo_buffer.buffer = _uniform_buffers[i];
+				ubo_buffer.offset = 0;
+				ubo_buffer.range = sizeof(UniformBufferObject);
 
-				VkWriteDescriptorSet write{};
-				write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-				write.dstSet = _descriptor_sets[i];
-				write.dstBinding = 0;
-				write.dstArrayElement = 0;
-				write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-				write.descriptorCount = 1;
-				write.pBufferInfo = &desc;
+				VkDescriptorImageInfo sampler_info{};
+				sampler_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				sampler_info.imageView = _texture_image_view;
+				sampler_info.sampler = _texture_sampler;
 
-				vkUpdateDescriptorSets(_logical_device, 1, &write, 0, nullptr);
+				std::array<VkWriteDescriptorSet, 2> writes{};
+
+				writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				writes[0].dstSet = _descriptor_sets[i];
+				writes[0].dstBinding = 0;
+				writes[0].dstArrayElement = 0;
+				writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+				writes[0].descriptorCount = 1;
+				writes[0].pBufferInfo = &ubo_buffer;
+
+				writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				writes[1].dstSet = _descriptor_sets[i];
+				writes[1].dstBinding = 1;
+				writes[1].dstArrayElement = 0;
+				writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				writes[1].descriptorCount = 1;
+				writes[1].pImageInfo = &sampler_info;
+
+				vkUpdateDescriptorSets(_logical_device, writes.size(), writes.data(), 0, nullptr);
 			}
 		}
 
