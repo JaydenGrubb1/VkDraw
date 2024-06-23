@@ -13,8 +13,8 @@
 #include <vulkan/vulkan.h>
 
 #include <SDL.h>
-#include <SDL_vulkan.h>
 #include <SDL_image.h>
+#include <SDL_vulkan.h>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -54,6 +54,7 @@ namespace VkDraw {
 		glm::vec3 pos;
 		glm::vec3 color;
 		glm::vec2 tex_coord;
+		glm::vec3 normal;
 
 		static VkVertexInputBindingDescription get_binding() {
 			VkVertexInputBindingDescription desc{};
@@ -63,8 +64,8 @@ namespace VkDraw {
 			return desc;
 		}
 
-		static std::array<VkVertexInputAttributeDescription, 3> get_attribute() {
-			std::array<VkVertexInputAttributeDescription, 3> desc{};
+		static std::array<VkVertexInputAttributeDescription, 4> get_attribute() {
+			std::array<VkVertexInputAttributeDescription, 4> desc{};
 
 			desc[0].binding = 0;
 			desc[0].location = 0;
@@ -81,6 +82,11 @@ namespace VkDraw {
 			desc[2].format = VK_FORMAT_R32G32_SFLOAT;
 			desc[2].offset = offsetof(Vertex, tex_coord);
 
+			desc[3].binding = 0;
+			desc[3].location = 3;
+			desc[3].format = VK_FORMAT_R32G32B32_SFLOAT;
+			desc[3].offset = offsetof(Vertex, normal);
+
 			return desc;
 		}
 	};
@@ -91,50 +97,50 @@ namespace VkDraw {
 		glm::mat4 proj;
 	};
 
-	glm::vec3 red = {1.0f, 0.0f, 0.0f};
-	glm::vec3 green = {0.0f, 1.0f, 0.0f};
-	glm::vec3 blue = {0.0f, 0.0f, 1.0f};
-	glm::vec3 yellow = {1.0f, 1.0f, 0.0f};
-	glm::vec3 cyan = {0.0f, 1.0f, 1.0f};
-	glm::vec3 magenta = {1.0f, 0.0f, 1.0f};
+	glm::vec3 red = { 1.0f, 0.0f, 0.0f };
+	glm::vec3 green = { 0.0f, 1.0f, 0.0f };
+	glm::vec3 blue = { 0.0f, 0.0f, 1.0f };
+	glm::vec3 yellow = { 1.0f, 1.0f, 0.0f };
+	glm::vec3 cyan = { 0.0f, 1.0f, 1.0f };
+	glm::vec3 magenta = { 1.0f, 0.0f, 1.0f };
 
 	// cube vertices
 	const std::vector<Vertex> vertices = {
 		// top face
-		{{-0.5f, -0.5f, 0.5f}, red, {0.0f, 0.0f}},
-		{{0.5f, -0.5f, 0.5f}, red, {0.25f, 0.0f}},
-		{{0.5f, 0.5f, 0.5f}, red, {0.25f, 0.25f}},
-		{{-0.5f, 0.5f, 0.5f}, red, {0.0f, 0.25f}},
+		{{ -0.5f, -0.5f, 0.5f }, red, { 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }},
+		{{ 0.5f, -0.5f, 0.5f }, red, { 0.25f, 0.0f }, { 0.0f, 0.0f, 1.0f }},
+		{{ 0.5f, 0.5f, 0.5f }, red, { 0.25f, 0.25f }, { 0.0f, 0.0f, 1.0f }},
+		{{ -0.5f, 0.5f, 0.5f }, red, { 0.0f, 0.25f }, { 0.0f, 0.0f, 1.0f }},
 
 		// bottom face
-		{{-0.5f, -0.5f, -0.5f}, green, {0.0f, 0.25f}},
-		{{0.5f, -0.5f, -0.5f}, green, {0.25f, 0.25f}},
-		{{0.5f, 0.5f, -0.5f}, green, {0.25f, 0.5f}},
-		{{-0.5f, 0.5f, -0.5f}, green, {0.0f, 0.5f}},
+		{{ -0.5f, -0.5f, -0.5f }, green, { 0.0f, 0.25f }, { 0.0f, 0.0f, -1.0f }},
+		{{ 0.5f, -0.5f, -0.5f }, green, { 0.25f, 0.25f }, { 0.0f, 0.0f, -1.0f }},
+		{{ 0.5f, 0.5f, -0.5f }, green, { 0.25f, 0.5f }, { 0.0f, 0.0f, -1.0f }},
+		{{ -0.5f, 0.5f, -0.5f }, green, { 0.0f, 0.5f }, { 0.0f, 0.0f, -1.0f }},
 
 		// left face
-		{{-0.5f, -0.5f, -0.5f}, blue, {0.25f, 0.0f}},
-		{{-0.5f, -0.5f, 0.5f}, blue, {0.5f, 0.0f}},
-		{{-0.5f, 0.5f, 0.5f}, blue, {0.5f, 0.25f}},
-		{{-0.5f, 0.5f, -0.5f}, blue, {0.25f, 0.25f}},
+		{{ -0.5f, -0.5f, -0.5f }, blue, { 0.25f, 0.0f }, { -1.0f, 0.0f, 0.0f }},
+		{{ -0.5f, -0.5f, 0.5f }, blue, { 0.5f, 0.0f }, { -1.0f, 0.0f, 0.0f }},
+		{{ -0.5f, 0.5f, 0.5f }, blue, { 0.5f, 0.25f }, { -1.0f, 0.0f, 0.0f }},
+		{{ -0.5f, 0.5f, -0.5f }, blue, { 0.25f, 0.25f }, { -1.0f, 0.0f, 0.0f }},
 
 		// right face
-		{{0.5f, -0.5f, -0.5f}, yellow, {0.5f, 0.0f}},
-		{{0.5f, -0.5f, 0.5f}, yellow, {0.75f, 0.0f}},
-		{{0.5f, 0.5f, 0.5f}, yellow, {0.75f, 0.25f}},
-		{{0.5f, 0.5f, -0.5f}, yellow, {0.5f, 0.25f}},
+		{{ 0.5f, -0.5f, -0.5f }, yellow, { 0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f }},
+		{{ 0.5f, -0.5f, 0.5f }, yellow, { 0.75f, 0.0f }, { 1.0f, 0.0f, 0.0f }},
+		{{ 0.5f, 0.5f, 0.5f }, yellow, { 0.75f, 0.25f }, { 1.0f, 0.0f, 0.0f }},
+		{{ 0.5f, 0.5f, -0.5f }, yellow, { 0.5f, 0.25f }, { 1.0f, 0.0f, 0.0f }},
 
 		// front face
-		{{-0.5f, -0.5f, -0.5f}, cyan, {0.75f, 0.0f}},
-		{{0.5f, -0.5f, -0.5f}, cyan, {1.0f, 0.0f}},
-		{{0.5f, -0.5f, 0.5f}, cyan, {1.0f, 0.25f}},
-		{{-0.5f, -0.5f, 0.5f}, cyan, {0.75f, 0.25f}},
+		{{ -0.5f, -0.5f, -0.5f }, cyan, { 0.75f, 0.0f }, { 0.0f, -1.0f, 0.0f }},
+		{{ 0.5f, -0.5f, -0.5f }, cyan, { 1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }},
+		{{ 0.5f, -0.5f, 0.5f }, cyan, { 1.0f, 0.25f }, { 0.0f, -1.0f, 0.0f }},
+		{{ -0.5f, -0.5f, 0.5f }, cyan, { 0.75f, 0.25f }, { 0.0f, -1.0f, 0.0f }},
 
 		// back face
-		{{-0.5f, 0.5f, -0.5f}, magenta, {0.25f, 0.25f}},
-		{{0.5f, 0.5f, -0.5f}, magenta, {0.5f, 0.25f}},
-		{{0.5f, 0.5f, 0.5f}, magenta, {0.5f, 0.5f}},
-		{{-0.5f, 0.5f, 0.5f}, magenta, {0.25f, 0.5f}}
+		{{ -0.5f, 0.5f, -0.5f }, magenta, { 0.25f, 0.25f }, { 0.0f, 1.0f, 0.0f }},
+		{{ 0.5f, 0.5f, -0.5f }, magenta, { 0.5f, 0.25f }, { 0.0f, 1.0f, 0.0f }},
+		{{ 0.5f, 0.5f, 0.5f }, magenta, { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f }},
+		{{ -0.5f, 0.5f, 0.5f }, magenta, { 0.25f, 0.5f }, { 0.0f, 1.0f, 0.0f }},
 	};
 
 	const std::vector<uint16_t> indices = {
@@ -160,16 +166,15 @@ namespace VkDraw {
 
 		// back face
 		22, 21, 20,
-		20, 23, 22
+		20, 23, 22,
 	};
 
-
-	static SDL_Window *_window;
+	static SDL_Window* _window;
 	static VkApplicationInfo _app_info{};
 	static VkInstance _instance{};
 	static VkSurfaceKHR _surface{};
 	static std::vector<VkExtensionProperties> _supported_extensions;
-	static std::vector<const char *> _required_extensions;
+	static std::vector<const char*> _required_extensions;
 	static VkPhysicalDevice _physical_device = nullptr;
 	static VkDevice _logical_device = nullptr;
 	static QueueFamilyIndex _queue_family;
@@ -200,7 +205,7 @@ namespace VkDraw {
 	static VkDeviceMemory _index_buffer_memory;
 	static std::vector<VkBuffer> _uniform_buffers;
 	static std::vector<VkDeviceMemory> _uniform_buffers_memory;
-	static std::vector<void *> _mapped_uniform_buffers;
+	static std::vector<void*> _mapped_uniform_buffers;
 	static VkDescriptorPool _descriptor_pool;
 	static std::vector<VkDescriptorSet> _descriptor_sets;
 	static VkImage _texture_image;
@@ -234,7 +239,7 @@ namespace VkDraw {
 		VkShaderModuleCreateInfo info{};
 		info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 		info.codeSize = code.size();
-		info.pCode = reinterpret_cast<const uint32_t *>(code.data());
+		info.pCode = reinterpret_cast<const uint32_t*>(code.data());
 
 		VkShaderModule module;
 		if (vkCreateShaderModule(_logical_device, &info, nullptr, &module) != VK_SUCCESS) {
@@ -256,12 +261,12 @@ namespace VkDraw {
 		render_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 		render_info.renderPass = _render_pass;
 		render_info.framebuffer = _framebuffers[image_idx];
-		render_info.renderArea.offset = {0, 0};
+		render_info.renderArea.offset = { 0, 0 };
 		render_info.renderArea.extent = _swapchain_extent;
 
 		std::array<VkClearValue, 2> clear_colors{};
-		clear_colors[0].color = {0.0f, 0.0f, 0.0f, 1.0f};
-		clear_colors[1].depthStencil = {1.0f, 0};
+		clear_colors[0].color = {{ 0.0f, 0.0f, 0.0f, 1.0f }};
+		clear_colors[1].depthStencil = { 1.0f, 0 };
 
 		render_info.clearValueCount = clear_colors.size();
 		render_info.pClearValues = clear_colors.data();
@@ -269,8 +274,8 @@ namespace VkDraw {
 		vkCmdBeginRenderPass(cmd_buffer, &render_info, VK_SUBPASS_CONTENTS_INLINE);
 		vkCmdBindPipeline(cmd_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline);
 
-		VkBuffer buffers[] = {_vertex_buffer};
-		VkDeviceSize offsets[] = {0};
+		VkBuffer buffers[] = { _vertex_buffer };
+		VkDeviceSize offsets[] = { 0 };
 		vkCmdBindVertexBuffers(cmd_buffer, 0, 1, buffers, offsets);
 		vkCmdBindIndexBuffer(cmd_buffer, _index_buffer, 0, VK_INDEX_TYPE_UINT16); // TODO: use uint32_t if needed
 		vkCmdBindDescriptorSets(
@@ -289,7 +294,7 @@ namespace VkDraw {
 		vkCmdSetViewport(cmd_buffer, 0, 1, &viewport);
 
 		VkRect2D scissor{};
-		scissor.offset = {0, 0};
+		scissor.offset = { 0, 0 };
 		scissor.extent = _swapchain_extent;
 		vkCmdSetScissor(cmd_buffer, 0, 1, &scissor);
 
@@ -398,7 +403,7 @@ namespace VkDraw {
 		info.clipped = VK_TRUE;
 		info.oldSwapchain = nullptr;
 
-		uint32_t queue_indices[] = {_queue_family.gfx_family.value(), _queue_family.present_family.value()};
+		uint32_t queue_indices[] = { _queue_family.gfx_family.value(), _queue_family.present_family.value() };
 
 		if (_queue_family.gfx_family == _queue_family.present_family) {
 			info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -507,7 +512,7 @@ namespace VkDraw {
 		UniformBufferObject ubo{};
 		ubo.model = glm::rotate(
 			glm::mat4(1.0f),
-			time * glm::radians(90.0f),
+			time * glm::radians(55.0f),
 			glm::vec3(1.0f, 1.0f, 1.0f)
 		);
 		ubo.view = glm::lookAt(
@@ -530,7 +535,7 @@ namespace VkDraw {
 
 		uint32_t image_idx;
 		auto res = vkAcquireNextImageKHR(
-			_logical_device, _swapchain, UINT64_MAX, _image_available[_current_frame],VK_NULL_HANDLE, &image_idx
+			_logical_device, _swapchain, UINT64_MAX, _image_available[_current_frame], VK_NULL_HANDLE, &image_idx
 		);
 		if (res == VK_ERROR_OUT_OF_DATE_KHR) {
 			recreate_swapchain();
@@ -545,9 +550,9 @@ namespace VkDraw {
 		vkResetCommandBuffer(_command_buffer[_current_frame], 0);
 		record_command(_command_buffer[_current_frame], image_idx);
 
-		VkSemaphore wait[] = {_image_available[_current_frame]};
-		VkSemaphore signal[] = {_render_finished[_current_frame]};
-		VkPipelineStageFlags wait_stage[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+		VkSemaphore wait[] = { _image_available[_current_frame] };
+		VkSemaphore signal[] = { _render_finished[_current_frame] };
+		VkPipelineStageFlags wait_stage[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
 		VkSubmitInfo submit{};
 		submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -563,7 +568,7 @@ namespace VkDraw {
 			throw std::runtime_error("Failed to submit queue!");
 		}
 
-		VkSwapchainKHR swapchains[] = {_swapchain};
+		VkSwapchainKHR swapchains[] = { _swapchain };
 
 		VkPresentInfoKHR present{};
 		present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -597,8 +602,8 @@ namespace VkDraw {
 	}
 
 	static void create_buffer(
-		VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer &buffer,
-		VkDeviceMemory &memory
+		VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer,
+		VkDeviceMemory& memory
 	) {
 		VkBufferCreateInfo info{};
 		info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -627,7 +632,7 @@ namespace VkDraw {
 
 	static void create_image(
 		uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
-		VkMemoryPropertyFlags properties, VkImage &image, VkDeviceMemory &memory
+		VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& memory
 	) {
 		VkImageCreateInfo info{};
 		info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -751,8 +756,8 @@ namespace VkDraw {
 		region.imageSubresource.mipLevel = 0;
 		region.imageSubresource.baseArrayLayer = 0;
 		region.imageSubresource.layerCount = 1;
-		region.imageOffset = {0, 0, 0};
-		region.imageExtent = {width, height, 1};
+		region.imageOffset = { 0, 0, 0 };
+		region.imageExtent = { width, height, 1 };
 
 		vkCmdCopyBufferToImage(
 			cmd, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region
@@ -772,7 +777,7 @@ namespace VkDraw {
 	}
 
 	static VkFormat find_supported_format(
-		const std::vector<VkFormat> &candidates, VkImageTiling tiling, VkFormatFeatureFlags features
+		const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features
 	) {
 		for (const auto format : candidates) {
 			VkFormatProperties props;
@@ -791,7 +796,7 @@ namespace VkDraw {
 
 	static void create_depth_resources() {
 		VkFormat format = find_supported_format(
-			{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+			{ VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT },
 			VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
 		);
 		create_image(
@@ -814,17 +819,17 @@ namespace VkDraw {
 			throw std::runtime_error("Failed to initialize SDL!");
 		}
 
-		if (_window = SDL_CreateWindow(
-			"VkDraw", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT,
-			SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE
-		); _window == nullptr) {
+		if (_window = SDL_CreateWindow("VkDraw",
+				SDL_WINDOWPOS_CENTERED,
+				SDL_WINDOWPOS_CENTERED,
+				WIDTH, HEIGHT,
+				SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE); _window == nullptr) {
 			throw std::runtime_error("Failed to create SDL Window!");
 		}
 
 		uint32_t ver;
 		vkEnumerateInstanceVersion(&ver);
-		std::printf(
-			"Vulkan: API version = %d.%d.%d-%d\n",
+		std::printf("Vulkan: API version = %d.%d.%d-%d\n",
 			VK_API_VERSION_MAJOR(ver), VK_API_VERSION_MINOR(ver),
 			VK_API_VERSION_PATCH(ver), VK_API_VERSION_VARIANT(ver)
 		);
@@ -849,7 +854,7 @@ namespace VkDraw {
 			vkEnumerateInstanceExtensionProperties(nullptr, &count, _supported_extensions.data());
 
 			std::printf("Vulkan: %u extension/s supported {\n", count);
-			for (const auto &ext : _supported_extensions) {
+			for (const auto& ext : _supported_extensions) {
 				std::printf("\t%s\n", ext.extensionName);
 			}
 			std::printf("}\n");
@@ -878,9 +883,9 @@ namespace VkDraw {
 			std::vector<VkLayerProperties> layers(count);
 			vkEnumerateInstanceLayerProperties(&count, layers.data());
 
-			for (const auto &required : VALIDATION_LAYERS) {
+			for (const auto& required : VALIDATION_LAYERS) {
 				bool found = false;
-				for (const auto &layer : layers) {
+				for (const auto& layer : layers) {
 					if (strcmp(layer.layerName, required) == 0) {
 						found = true;
 						break;
@@ -928,7 +933,7 @@ namespace VkDraw {
 			vkEnumeratePhysicalDevices(_instance, &count, devices.data());
 
 			std::printf("Vulkan: %u device/s found {\n", count);
-			for (const auto &device : devices) {
+			for (const auto& device : devices) {
 				VkPhysicalDeviceProperties properties;
 				vkGetPhysicalDeviceProperties(device, &properties);
 				VkPhysicalDeviceFeatures features;
@@ -936,7 +941,7 @@ namespace VkDraw {
 
 				std::printf("\t%s\n", properties.deviceName);
 
-				bool dedicated = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+				bool dedicated = true;//properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 				bool supports_extensions = true;
 				bool supports_features = features.samplerAnisotropy; // TODO: add more features
 
@@ -947,9 +952,9 @@ namespace VkDraw {
 					std::vector<VkExtensionProperties> ext_properties(ext_count);
 					vkEnumerateDeviceExtensionProperties(device, nullptr, &ext_count, ext_properties.data());
 
-					for (const auto &required : DEVICE_EXTENSIONS) {
+					for (const auto& required : DEVICE_EXTENSIONS) {
 						bool found = false;
-						for (const auto &ext : ext_properties) {
+						for (const auto& ext : ext_properties) {
 							if (strcmp(ext.extensionName, required) == 0) {
 								found = true;
 								break;
@@ -983,7 +988,9 @@ namespace VkDraw {
 			std::vector<VkQueueFamilyProperties> families(count);
 			vkGetPhysicalDeviceQueueFamilyProperties(_physical_device, &count, families.data());
 
-			for (auto [idx, family] : std::views::enumerate(families)) {
+			for (size_t idx = 0; idx < families.size(); idx++) {
+//			for (auto [idx, family] : std::views::enumerate(families)) {
+				auto& family = families[idx];
 				bool support_gfx = family.queueFlags & VK_QUEUE_GRAPHICS_BIT;
 				if (support_gfx) {
 					_queue_family.gfx_family = idx;
@@ -1075,14 +1082,15 @@ namespace VkDraw {
 			sampler.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 			sampler.pImmutableSamplers = nullptr;
 
-			std::array bindings = {ubos, sampler};
+			std::array bindings = { ubos, sampler };
 
 			VkDescriptorSetLayoutCreateInfo info{};
 			info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 			info.pBindings = bindings.data();
 			info.bindingCount = bindings.size();
 
-			if (vkCreateDescriptorSetLayout(_logical_device, &info, nullptr, &_descriptor_set_layout) != VK_SUCCESS) {
+			if (vkCreateDescriptorSetLayout(_logical_device, &info, nullptr, &_descriptor_set_layout)
+				!= VK_SUCCESS) {
 				throw std::runtime_error("Failed to create descriptor set layout!");
 			}
 		}
@@ -1108,7 +1116,7 @@ namespace VkDraw {
 			frag_stage.module = frag_shader;
 			frag_stage.pName = "main";
 
-			VkPipelineShaderStageCreateInfo stages[] = {vert_stage, frag_stage};
+			VkPipelineShaderStageCreateInfo stages[] = { vert_stage, frag_stage };
 
 			pipeline_info.stageCount = 2;
 			pipeline_info.pStages = stages;
@@ -1176,7 +1184,7 @@ namespace VkDraw {
 			VkPipelineColorBlendAttachmentState blend_attachment{};
 			blend_attachment.colorWriteMask =
 				VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-				VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+					VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 			blend_attachment.blendEnable = VK_FALSE;
 
 			VkPipelineColorBlendStateCreateInfo blending_state{};
@@ -1229,7 +1237,7 @@ namespace VkDraw {
 
 				VkAttachmentDescription depth_attach{};
 				depth_attach.format = find_supported_format(
-					{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+					{ VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT },
 					VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
 				); // TODO: call this function once earlier
 				depth_attach.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -1240,7 +1248,7 @@ namespace VkDraw {
 				depth_attach.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 				depth_attach.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-				std::array attachments = {color_attach, depth_attach};
+				std::array attachments = { color_attach, depth_attach };
 
 				VkAttachmentReference color_ref{};
 				color_ref.attachment = 0;
@@ -1370,7 +1378,7 @@ namespace VkDraw {
 			);
 
 			// fill staging buffer
-			void *data;
+			void* data;
 			vkMapMemory(_logical_device, staging_memory, 0, size, 0, &data);
 			memcpy(data, vertices.data(), size);
 			vkUnmapMemory(_logical_device, staging_memory);
@@ -1404,7 +1412,7 @@ namespace VkDraw {
 			);
 
 			// fill staging buffer
-			void *data;
+			void* data;
 			vkMapMemory(_logical_device, staging_memory, 0, size, 0, &data);
 			memcpy(data, indices.data(), size);
 			vkUnmapMemory(_logical_device, staging_memory);
@@ -1444,7 +1452,7 @@ namespace VkDraw {
 
 		// load texture data
 		{
-			SDL_Surface *img = IMG_Load("textures/art.png");
+			SDL_Surface* img = IMG_Load("textures/art.png");
 			if (!img) {
 				throw std::runtime_error("Failed to load texture image!");
 			}
@@ -1462,7 +1470,7 @@ namespace VkDraw {
 				staging_buffer, staging_memory
 			);
 
-			void *data;
+			void* data;
 			vkMapMemory(_logical_device, staging_memory, 0, size, 0, &data);
 			memcpy(data, img->pixels, size);
 			vkUnmapMemory(_logical_device, staging_memory);
@@ -1490,7 +1498,8 @@ namespace VkDraw {
 
 		// create texture image view
 		{
-			_texture_image_view = create_image_view(_texture_image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
+			_texture_image_view =
+				create_image_view(_texture_image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT);
 		}
 
 		// create texture sampler
@@ -1531,7 +1540,7 @@ namespace VkDraw {
 			sampler_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			sampler_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
-			std::array sizes = {ubo_size, sampler_size};
+			std::array sizes = { ubo_size, sampler_size };
 
 			VkDescriptorPoolCreateInfo info{};
 			info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1613,21 +1622,21 @@ namespace VkDraw {
 				accumulator = 0.0f;
 				frame_count = 0.0f;
 
-				std::snprintf(title, sizeof(title), "VkDraw | FPS: %.0f (%.2fms)", 1000.0f / avg, avg);
+				std::snprintf(title, sizeof(title), "Meme Cube | FPS: %.0f (%.2fms)", 1000.0f / avg, avg);
 				SDL_SetWindowTitle(_window, title);
 			}
 
 			while (SDL_PollEvent(&event)) {
 				switch (event.type) {
-					case SDL_QUIT:
-						running = false;
-						break;
-					case SDL_WINDOWEVENT:
-						if (event.window.type == SDL_WINDOWEVENT_RESIZED) {
-							_window_resized = true;
-						}
-					default:
-						break;
+				case SDL_QUIT:
+					running = false;
+					break;
+				case SDL_WINDOWEVENT:
+					if (event.window.type == SDL_WINDOWEVENT_RESIZED) {
+						_window_resized = true;
+					}
+				default:
+					break;
 				}
 			}
 

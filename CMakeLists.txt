@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
 
 project(VkDraw)
@@ -10,7 +10,7 @@ add_compile_options(
 	-Wall
 	-Wextra
 	-Wpedantic
-	#-Wold-style-cast
+	#	-Wold-style-cast
 )
 
 add_executable(
@@ -57,3 +57,10 @@ foreach (shader ${SHADER_SRC})
 endforeach ()
 
 add_custom_target(shaders ALL DEPENDS ${SHADER_SPIRV})
+
+if (CMAKE_IMPORT_LIBRARY_SUFFIX)
+	add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_RUNTIME_DLLS:${PROJECT_NAME}> $<TARGET_FILE_DIR:${PROJECT_NAME}>
+		COMMAND_EXPAND_LISTS
+	)
+endif ()
