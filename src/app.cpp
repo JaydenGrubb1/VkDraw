@@ -95,6 +95,7 @@ namespace VkDraw {
 		glm::mat4 model;
 		glm::mat4 view;
 		glm::mat4 proj;
+		float time;
 	};
 
 	glm::vec3 red = { 1.0f, 0.0f, 0.0f };
@@ -106,67 +107,14 @@ namespace VkDraw {
 
 	// cube vertices
 	const std::vector<Vertex> vertices = {
-		// top face
-		{{ -0.5f, -0.5f, 0.5f }, red, { 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }},
-		{{ 0.5f, -0.5f, 0.5f }, red, { 0.25f, 0.0f }, { 0.0f, 0.0f, 1.0f }},
-		{{ 0.5f, 0.5f, 0.5f }, red, { 0.25f, 0.25f }, { 0.0f, 0.0f, 1.0f }},
-		{{ -0.5f, 0.5f, 0.5f }, red, { 0.0f, 0.25f }, { 0.0f, 0.0f, 1.0f }},
-
-		// bottom face
-		{{ -0.5f, -0.5f, -0.5f }, green, { 0.0f, 0.25f }, { 0.0f, 0.0f, -1.0f }},
-		{{ 0.5f, -0.5f, -0.5f }, green, { 0.25f, 0.25f }, { 0.0f, 0.0f, -1.0f }},
-		{{ 0.5f, 0.5f, -0.5f }, green, { 0.25f, 0.5f }, { 0.0f, 0.0f, -1.0f }},
-		{{ -0.5f, 0.5f, -0.5f }, green, { 0.0f, 0.5f }, { 0.0f, 0.0f, -1.0f }},
-
-		// left face
-		{{ -0.5f, -0.5f, -0.5f }, blue, { 0.25f, 0.0f }, { -1.0f, 0.0f, 0.0f }},
-		{{ -0.5f, -0.5f, 0.5f }, blue, { 0.5f, 0.0f }, { -1.0f, 0.0f, 0.0f }},
-		{{ -0.5f, 0.5f, 0.5f }, blue, { 0.5f, 0.25f }, { -1.0f, 0.0f, 0.0f }},
-		{{ -0.5f, 0.5f, -0.5f }, blue, { 0.25f, 0.25f }, { -1.0f, 0.0f, 0.0f }},
-
-		// right face
-		{{ 0.5f, -0.5f, -0.5f }, yellow, { 0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f }},
-		{{ 0.5f, -0.5f, 0.5f }, yellow, { 0.75f, 0.0f }, { 1.0f, 0.0f, 0.0f }},
-		{{ 0.5f, 0.5f, 0.5f }, yellow, { 0.75f, 0.25f }, { 1.0f, 0.0f, 0.0f }},
-		{{ 0.5f, 0.5f, -0.5f }, yellow, { 0.5f, 0.25f }, { 1.0f, 0.0f, 0.0f }},
-
-		// front face
-		{{ -0.5f, -0.5f, -0.5f }, cyan, { 0.75f, 0.0f }, { 0.0f, -1.0f, 0.0f }},
-		{{ 0.5f, -0.5f, -0.5f }, cyan, { 1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }},
-		{{ 0.5f, -0.5f, 0.5f }, cyan, { 1.0f, 0.25f }, { 0.0f, -1.0f, 0.0f }},
-		{{ -0.5f, -0.5f, 0.5f }, cyan, { 0.75f, 0.25f }, { 0.0f, -1.0f, 0.0f }},
-
-		// back face
-		{{ -0.5f, 0.5f, -0.5f }, magenta, { 0.25f, 0.25f }, { 0.0f, 1.0f, 0.0f }},
-		{{ 0.5f, 0.5f, -0.5f }, magenta, { 0.5f, 0.25f }, { 0.0f, 1.0f, 0.0f }},
-		{{ 0.5f, 0.5f, 0.5f }, magenta, { 0.5f, 0.5f }, { 0.0f, 1.0f, 0.0f }},
-		{{ -0.5f, 0.5f, 0.5f }, magenta, { 0.25f, 0.5f }, { 0.0f, 1.0f, 0.0f }},
+		{{ -1.0f, -1.0f, 0.5f }, red, { 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }},
+		{{ 1.0f, -1.0f, 0.5f }, red, { 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }},
+		{{ 1.0f, 1.0f, 0.5f }, red, { 1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }},
+		{{ -1.0f, 1.0f, 0.5f }, red, { 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f }},
 	};
 
 	const std::vector<uint16_t> indices = {
-		// top face
-		0, 1, 2,
-		2, 3, 0,
-
-		// bottom face
-		6, 5, 4,
-		4, 7, 6,
-
-		// left face
-		8, 9, 10,
-		10, 11, 8,
-
-		// right face
-		14, 13, 12,
-		12, 15, 14,
-
-		// front face
-		16, 17, 18,
-		18, 19, 16,
-
-		// back face
-		22, 21, 20,
-		20, 23, 22,
+		2, 1, 0, 0, 3, 2,
 	};
 
 	static SDL_Window* _window;
@@ -526,6 +474,7 @@ namespace VkDraw {
 			0.1f,
 			10.0f
 		);
+		ubo.time = time;
 
 		memcpy(_mapped_uniform_buffers[current], &ubo, sizeof(ubo));
 	}
@@ -1072,7 +1021,7 @@ namespace VkDraw {
 			ubos.binding = 0;
 			ubos.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 			ubos.descriptorCount = 1;
-			ubos.stageFlags = VK_SHADER_STAGE_VERTEX_BIT; // TODO: change if needed in other stages
+			ubos.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 			ubos.pImmutableSamplers = nullptr;
 
 			VkDescriptorSetLayoutBinding sampler{};
@@ -1622,7 +1571,7 @@ namespace VkDraw {
 				accumulator = 0.0f;
 				frame_count = 0.0f;
 
-				std::snprintf(title, sizeof(title), "Meme Cube | FPS: %.0f (%.2fms)", 1000.0f / avg, avg);
+				std::snprintf(title, sizeof(title), "VkDraw | FPS: %.0f (%.2fms)", 1000.0f / avg, avg);
 				SDL_SetWindowTitle(_window, title);
 			}
 
