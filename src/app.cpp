@@ -1514,9 +1514,6 @@ namespace VkDraw {
 			init.RenderPass = _render_pass;
 
 			ImGui_ImplVulkan_Init(&init);
-			auto cmd = begin_single_use_command();
-			ImGui_ImplVulkan_CreateFontsTexture();
-			end_single_use_command(cmd);
 
 			// TODO: Destroy descriptor pool
 			// TODO: ImGui cleanup
