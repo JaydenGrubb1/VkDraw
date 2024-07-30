@@ -115,6 +115,13 @@ void main() {
 	vec3 reflectDir = reflect(-lightDir, norm);
 	float spec = pow(max(dot(viewDir, reflectDir), 0.0), shininess);
 
+	// shadow
+	float shadowDist = march(point + norm * 0.01, lightDir, ubo.time);
+	if (shadowDist < length(lightPos - point)) {
+		diffuse = 0.0;
+		spec = 0.0;
+	}
+
 	// final color
 	vec3 baseColor = norm * 0.5 + 0.5;
 	vec3 color = (baseColor * (ambient + diffuse)) + (vec3(1.0) * spec);
